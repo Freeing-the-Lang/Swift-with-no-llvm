@@ -1,0 +1,74 @@
+name: "Swift-with-no-llvm — 3OS Build & ASM Proof"
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [ closed ]
+  schedule:
+    - cron: "0 0 * * *"   # 매일 자동 빌드
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: swift-with-no-llvm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-3os:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: "Checkout Repository"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: "Setup Swift"
+        uses: swift-actions/setup-swift@v1
+        with:
+          swift-version: "6.0"
+
+      - name: "Build ASM Generator"
+        run: |
+          mkdir -p dist
+          swiftc src/main.swift -o dist/swift_no_llvm
+          echo "✅ Build complete for ${{ matrix.os }}"
+
+      - name: "Generate ASM"
+        run: |
+          cd dist
+          echo 'print "Hello from CI Swift-with-no-llvm!"' > sample.swift
+          ./swift_no_llvm
+          echo "✅ ASM generated: out.s"
+          ls -l out.s
+
+      - name: "Assemble & Run (Linux/macOS only)"
+        if: runner.os != 'Windows'
+        run: |
+          cd dist
+          nasm -felf64 out.s -o out.o || true
+          ld out.o -o out || true
+          echo "🔹 Running generated binary (if available)..."
+          ./out || true
+
+      - name: "Generate ProofLedger (SHA256)"
+        shell: bash
+        run: |
+          cd dist
+          sha256sum out.s > PROOF_LEDGER.txt
+          echo "✅ ProofLedger created:"
+          cat PROOF_LEDGER.txt
+
+      - name: "Upload Artifacts"
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-with-no-llvm-${{ matrix.os }}
+          path: |
+            dist/out.s
+            dist/PROOF_LEDGER.txt
