@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v4 / official Swift.org)"
+name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v5 / official swift.org)"
 
 on:
   push:
@@ -46,21 +46,27 @@ jobs:
           brew install swift nasm || true
           swift --version
 
-      - name: Install Swift (Windows via WinGet official)
+      - name: Install Swift (Windows via WinGet official + PATH fix)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Write-Host "🪟 Installing Swift via WinGet (official swift.org method)..."
           winget install --id Swift.Swift --source winget --accept-package-agreements --accept-source-agreements -e -h
           Write-Host "✅ Swift installed via WinGet."
-          $binPath = 'C:\Program Files\Swift\bin'
-          if (Test-Path $binPath) {
-            echo "$binPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-            Write-Host "✅ Added $binPath to PATH"
+
+          # Swift 기본 설치 경로를 PATH에 강제로 추가
+          $swiftPath = 'C:\Program Files\Swift\bin'
+          if (Test-Path $swiftPath) {
+              echo "$swiftPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+              $env:Path += ";$swiftPath"
+              Write-Host "✅ Added $swiftPath to PATH"
           } else {
-            Write-Host "⚠️ Swift path not found, listing Program Files contents:"
-            Get-ChildItem 'C:\Program Files' | Write-Host
+              Write-Host "⚠️ Swift binary path not found. Listing Program Files for debugging:"
+              Get-ChildItem 'C:\Program Files' | Write-Host
           }
+
+          Write-Host "🔎 Verifying Swift installation..."
+          Get-Command swift -ErrorAction SilentlyContinue | Write-Host
           swift --version
 
       # ---------- 2. 빌드 ----------
@@ -103,7 +109,7 @@ jobs:
           zip -r ../swift-with-no-llvm-${{ matrix.os }}.zip .
           echo "📦 Packaged swift-with-no-llvm-${{ matrix.os }}.zip"
 
-      # ---------- 7. 태그 ----------
+      # ---------- 7. 자동 태그 ----------
       - name: Create Auto Tag
         id: tag
         shell: bash
@@ -116,7 +122,7 @@ jobs:
           git push origin "$VERSION"
           echo "🔖 Created tag $VERSION"
 
-      # ---------- 8. 릴리즈 ----------
+      # ---------- 8. 자동 릴리즈 ----------
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v1
         with:
@@ -131,4 +137,4 @@ jobs:
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Windows installed via official WinGet method from swift.org
+            - Windows installed via official WinGet method from swift.org (PATH patched)
