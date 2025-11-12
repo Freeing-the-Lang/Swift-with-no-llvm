@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v15.1 / Auto-Retry & Concurrency Safe)"
+name: "Swift-with-no-llvm — Dual-Platform Build & Auto Release (Final Stable v16 / Linux + macOS Only)"
 
 on:
   push:
@@ -10,52 +10,47 @@ permissions:
 
 concurrency:
   group: swift-with-no-llvm-${{ github.ref }}
-  cancel-in-progress: false   # ✅ 이전 실행 중단 방지
+  cancel-in-progress: false
 
 jobs:
   build-and-release:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
 
     steps:
-      # ---------- 0. Checkout (auto-retry + timeout) ----------
+      # ---------- 0. Checkout (retry + timeout) ----------
       - name: Checkout Repository (with retry)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-        timeout-minutes: 10
+        timeout-minutes: 8
         continue-on-error: true
 
       - name: Verify Checkout
         shell: bash
         run: |
           if [ ! -d .git ]; then
-            echo "⚠️ Checkout may have failed, retrying clone..."
+            echo "⚠️ Checkout failed, retrying manually..."
             rm -rf * .git
             git clone $GITHUB_SERVER_URL/$GITHUB_REPOSITORY .
           fi
-          echo "✅ Repository ready: $(pwd)"
+          echo "✅ Repository ready"
           ls -al
 
-      # ---------- 1. 최신 Swift URL 자동 탐색 ----------
+      # ---------- 1. 최신 Swift.org URL 자동 감지 ----------
       - name: Detect Latest Swift Release URL
         id: detect
         shell: bash
         run: |
-          echo "🔍 Fetching latest Swift release info from swift.org..."
+          echo "🔍 Detecting latest Swift release URLs from swift.org..."
           SWIFT_URL_LINUX=$(curl -s https://www.swift.org/install/linux/ | grep -o 'https://download.swift.org/swift-[^"]*-release/ubuntu2204/swift-[^"]*.tar.gz' | head -n 1)
-          SWIFT_URL_WINDOWS=$(curl -s https://www.swift.org/install/windows/ | grep -o 'https://download.swift.org/swift-[^"]*-release/windows10/swift-[^"]*-x64.zip' | head -n 1)
           SWIFT_URL_MACOS="https://download.swift.org/swift-6.0.1-release/xcode/swift-6.0.1-RELEASE-osx.pkg"
-
           echo "linux_url=$SWIFT_URL_LINUX" >> $GITHUB_OUTPUT
-          echo "windows_url=$SWIFT_URL_WINDOWS" >> $GITHUB_OUTPUT
           echo "macos_url=$SWIFT_URL_MACOS" >> $GITHUB_OUTPUT
-
-          echo "✅ Latest Swift detected:"
+          echo "✅ Detected URLs:"
           echo "Linux:   $SWIFT_URL_LINUX"
-          echo "Windows: $SWIFT_URL_WINDOWS"
           echo "macOS:   $SWIFT_URL_MACOS"
 
       # ---------- 2. Swift 설치 ----------
@@ -65,7 +60,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libicu-dev curl tar nasm
-          echo "🐧 Installing Swift from detected URL..."
+          echo "🐧 Installing Swift..."
           curl -L ${{ steps.detect.outputs.linux_url }} -o swift.tar.gz
           tar xzf swift.tar.gz
           SWIFT_DIR=$(tar -tzf swift.tar.gz | head -n1 | cut -f1 -d"/")
@@ -77,37 +72,14 @@ jobs:
         if: runner.os == 'macOS'
         timeout-minutes: 10
         run: |
-          echo "🍎 Installing Swift (auto-detected macOS package)..."
+          echo "🍎 Installing Swift..."
           curl -L ${{ steps.detect.outputs.macos_url }} -o swift.pkg
           sudo installer -pkg swift.pkg -target /
           swift --version
 
-      - name: Install Swift (Windows via ZIP)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        timeout-minutes: 15
-        run: |
-          Write-Host "🪟 Installing Swift from official ZIP (auto-detected)..."
-          $url = "${{ steps.detect.outputs.windows_url }}"
-          if (-not $url) {
-            Write-Host "⚠️ Could not detect Windows URL, using fallback 6.0.1"
-            $url = "https://download.swift.org/swift-6.0.1-release/windows10/swift-6.0.1-RELEASE-windows10-x64.zip"
-          }
-
-          $zip = "swift.zip"
-          $extractDir = "C:\swift"
-          Write-Host "Downloading: $url"
-          Invoke-WebRequest -Uri $url -OutFile $zip
-          Expand-Archive -Path $zip -DestinationPath $extractDir -Force
-          $swiftBin = "C:\swift\swift-6.0.1-RELEASE-windows10-x64\usr\bin"
-          echo "$swiftBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          $env:Path += ";$swiftBin"
-          Write-Host "✅ Swift extracted to $swiftBin"
-          swift --version
-
       # ---------- 3. 빌드 ----------
       - name: Build Swift Project
-        timeout-minutes: 10
+        timeout-minutes: 8
         run: |
           mkdir -p dist
           swiftc src/main.swift -o dist/swift_no_llvm
@@ -162,4 +134,4 @@ jobs:
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Auto-retry checkout & concurrency-safe workflow
+            - Linux & macOS builds only (Windows excluded for stability)
