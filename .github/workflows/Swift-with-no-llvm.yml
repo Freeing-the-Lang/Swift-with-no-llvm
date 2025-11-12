@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Dual-Platform Build & Auto Release (v16.2 / Linux+macOS Unified Auto-Fallback)"
+name: "Swift-with-no-llvm — Dual-Platform Build & Auto Release (v16.3 / Long Timeout & Retry Edition)"
 
 on:
   push:
@@ -74,21 +74,26 @@ jobs:
       # ---------- 2. Swift 설치 ----------
       - name: Install Swift (Linux)
         if: runner.os == 'Linux'
-        timeout-minutes: 10
+        timeout-minutes: 20   # ⏱️ 시간 늘림
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libicu-dev curl tar nasm
-          echo "🐧 Installing Swift..."
-          curl -L ${{ steps.detect.outputs.linux_url }} -o swift.tar.gz
+          set -e
+          echo "🐧 Installing Swift dependencies..."
+          sudo apt-get update -y || (sleep 10 && sudo apt-get update -y)
+          sudo apt-get install -y clang libicu-dev curl tar nasm || (sleep 10 && sudo apt-get install -y clang libicu-dev curl tar nasm)
+
+          echo "🐧 Installing Swift toolchain..."
+          curl -L --retry 3 --retry-delay 5 -o swift.tar.gz ${{ steps.detect.outputs.linux_url }}
+
           tar xzf swift.tar.gz
           SWIFT_DIR=$(tar -tzf swift.tar.gz | head -n1 | cut -f1 -d"/")
           sudo mv $SWIFT_DIR /usr/local/swift
           echo "/usr/local/swift/usr/bin" >> $GITHUB_PATH
+          echo "🔍 Verifying Swift installation..."
           swift --version
 
       - name: Install Swift (macOS)
         if: runner.os == 'macOS'
-        timeout-minutes: 10
+        timeout-minutes: 15
         run: |
           echo "🍎 Installing Swift..."
           URL="${{ steps.detect.outputs.macos_url }}"
@@ -113,7 +118,7 @@ jobs:
 
       # ---------- 3. 빌드 ----------
       - name: Build Swift Project
-        timeout-minutes: 8
+        timeout-minutes: 10
         run: |
           mkdir -p dist
           swiftc src/main.swift -o dist/swift_no_llvm
@@ -169,4 +174,4 @@ jobs:
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
             - Linux & macOS only
-            - Auto-fallback if Swift.org unreachable
+            - Long Timeout + Auto Retry for apt & curl
