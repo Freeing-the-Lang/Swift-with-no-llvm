@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v5 / official swift.org)"
+name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v6 / WSL Build Edition)"
 
 on:
   push:
@@ -46,70 +46,64 @@ jobs:
           brew install swift nasm || true
           swift --version
 
-      - name: Install Swift (Windows via WinGet official + PATH fix)
+      - name: Install & Build Swift inside WSL (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Write-Host "🪟 Installing Swift via WinGet (official swift.org method)..."
-          winget install --id Swift.Swift --source winget --accept-package-agreements --accept-source-agreements -e -h
-          Write-Host "✅ Swift installed via WinGet."
+          Write-Host "🪟 Installing Swift 6.0 inside WSL Ubuntu..."
+          # 1. WSL Ubuntu 설치 및 준비
+          wsl --install -d Ubuntu --no-launch
+          wsl sudo apt-get update
+          wsl sudo apt-get install -y clang libicu-dev curl tar nasm
+          
+          # 2. Swift 다운로드 및 설치 (WSL 내부)
+          wsl bash -c "curl -L https://download.swift.org/swift-6.0-release/ubuntu2204/swift-6.0-RELEASE-ubuntu22.04.tar.gz -o swift.tar.gz"
+          wsl bash -c "tar xzf swift.tar.gz && sudo mv swift-6.0-RELEASE-ubuntu22.04 /usr/local/swift-6.0"
+          Write-Host "✅ Swift 6.0 installed inside WSL Ubuntu"
 
-          # Swift 기본 설치 경로를 PATH에 강제로 추가
-          $swiftPath = 'C:\Program Files\Swift\bin'
-          if (Test-Path $swiftPath) {
-              echo "$swiftPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-              $env:Path += ";$swiftPath"
-              Write-Host "✅ Added $swiftPath to PATH"
-          } else {
-              Write-Host "⚠️ Swift binary path not found. Listing Program Files for debugging:"
-              Get-ChildItem 'C:\Program Files' | Write-Host
-          }
+          # 3. WSL 내부에서 Swift 버전 확인
+          wsl bash -c "/usr/local/swift-6.0/usr/bin/swift --version"
 
-          Write-Host "🔎 Verifying Swift installation..."
-          Get-Command swift -ErrorAction SilentlyContinue | Write-Host
-          swift --version
+          # 4. 빌드 디렉토리 생성 및 빌드 수행
+          Write-Host "⚙️  Building project inside WSL..."
+          wsl bash -c "mkdir -p /mnt/d/a/swiftbuild/dist"
+          wsl bash -c "cd /mnt/d/a/swiftbuild && /usr/local/swift-6.0/usr/bin/swiftc /mnt/d/a/_work/${{ github.repository }}/src/main.swift -o dist/swift_no_llvm"
+          Write-Host "✅ Build complete inside WSL"
+          
+          # 5. ASM 생성
+          Write-Host "🧩 Generating ASM inside WSL..."
+          wsl bash -c "cd /mnt/d/a/swiftbuild/dist && echo 'print(\"Hello from Swift-with-no-llvm!\")' > sample.swift && ./swift_no_llvm && ls -lh"
 
-      # ---------- 2. 빌드 ----------
-      - name: Build ASM Generator
-        run: |
-          mkdir -p dist
-          swiftc src/main.swift -o dist/swift_no_llvm
-          echo "✅ Build complete for ${{ matrix.os }}"
+          # 6. ProofLedger 생성
+          Write-Host "🧾 Creating ProofLedger..."
+          wsl bash -c "cd /mnt/d/a/swiftbuild/dist && sha256sum out.s > PROOF_LEDGER.txt || shasum -a 256 out.s > PROOF_LEDGER.txt && cat PROOF_LEDGER.txt"
 
-      # ---------- 3. ASM 생성 ----------
-      - name: Generate ASM
-        run: |
-          cd dist
-          echo 'print "Hello from Swift-with-no-llvm!"' > sample.swift
-          ./swift_no_llvm
-          echo "✅ ASM generated: out.s"
-          ls -lh out.s || dir out.s
+          # 7. 패키징
+          Write-Host "📦 Packaging build artifacts..."
+          wsl bash -c "cd /mnt/d/a/swiftbuild/dist && zip -r ../swift-with-no-llvm-windows-wsl.zip ."
 
-      # ---------- 4. 어셈블 및 실행 (Linux/macOS만) ----------
-      - name: Assemble & Run (Linux/macOS only)
-        if: runner.os != 'Windows'
-        run: |
-          cd dist
-          nasm -felf64 out.s -o out.o || true
-          ld out.o -o out || true
-          ./out || true
+          # 8. 산출물 복사
+          mkdir dist
+          cp D:\a\swiftbuild\swift-with-no-llvm-windows-wsl.zip dist\
 
-      # ---------- 5. ProofLedger ----------
+      # ---------- 2. ProofLedger (Linux/macOS 공통) ----------
       - name: Generate ProofLedger
+        if: runner.os != 'Windows'
         run: |
           cd dist
           sha256sum out.s > PROOF_LEDGER.txt || shasum -a 256 out.s > PROOF_LEDGER.txt
           echo "✅ ProofLedger created:"
           cat PROOF_LEDGER.txt
 
-      # ---------- 6. 패키징 ----------
+      # ---------- 3. 패키징 (Linux/macOS) ----------
       - name: Package Artifacts
+        if: runner.os != 'Windows'
         run: |
           cd dist
           zip -r ../swift-with-no-llvm-${{ matrix.os }}.zip .
           echo "📦 Packaged swift-with-no-llvm-${{ matrix.os }}.zip"
 
-      # ---------- 7. 자동 태그 ----------
+      # ---------- 4. 자동 태그 ----------
       - name: Create Auto Tag
         id: tag
         shell: bash
@@ -122,19 +116,18 @@ jobs:
           git push origin "$VERSION"
           echo "🔖 Created tag $VERSION"
 
-      # ---------- 8. 자동 릴리즈 ----------
+      # ---------- 5. 자동 릴리즈 ----------
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.tag.outputs.version }}
           name: "Swift-with-no-llvm — ${{ steps.tag.outputs.version }}"
           files: |
-            dist/out.s
-            dist/PROOF_LEDGER.txt
-            swift-with-no-llvm-${{ matrix.os }}.zip
+            dist/**/*.zip
+            dist/**/*.txt
           body: |
             ✅ Auto-built release for Swift-with-no-llvm
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Windows installed via official WinGet method from swift.org (PATH patched)
+            - Windows builds executed inside WSL Ubuntu for full Swift support
