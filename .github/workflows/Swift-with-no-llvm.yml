@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Dual-Platform Build & Auto Release (v16.1 / Linux+macOS Auto-Fallback Edition)"
+name: "Swift-with-no-llvm — Dual-Platform Build & Auto Release (v16.2 / Linux+macOS Unified Auto-Fallback)"
 
 on:
   push:
@@ -49,13 +49,19 @@ jobs:
 
           SWIFT_URL_LINUX=$(curl -fsSL https://www.swift.org/install/linux/ | \
             grep -o 'https://download.swift.org/swift-[^"]*-release/ubuntu2204/swift-[^"]*.tar.gz' | head -n 1)
-          
+
           if [ -z "$SWIFT_URL_LINUX" ]; then
             echo "⚠️ Could not detect Linux URL, using fallback Swift 6.0.1"
             SWIFT_URL_LINUX="https://download.swift.org/swift-6.0.1-release/ubuntu2204/swift-6.0.1-RELEASE-ubuntu22.04.tar.gz"
           fi
 
-          SWIFT_URL_MACOS="https://download.swift.org/swift-6.0.1-release/xcode/swift-6.0.1-RELEASE-osx.pkg"
+          SWIFT_URL_MACOS=$(curl -fsSL https://www.swift.org/install/macos/ | \
+            grep -o 'https://download.swift.org/swift-[^"]*-release/xcode/swift-[^"]*-osx.pkg' | head -n 1)
+
+          if [ -z "$SWIFT_URL_MACOS" ]; then
+            echo "⚠️ Could not detect macOS URL, using fallback Swift 6.0.1"
+            SWIFT_URL_MACOS="https://download.swift.org/swift-6.0.1-release/xcode/swift-6.0.1-RELEASE-osx.pkg"
+          fi
 
           echo "linux_url=$SWIFT_URL_LINUX" >> $GITHUB_OUTPUT
           echo "macos_url=$SWIFT_URL_MACOS" >> $GITHUB_OUTPUT
@@ -85,8 +91,24 @@ jobs:
         timeout-minutes: 10
         run: |
           echo "🍎 Installing Swift..."
-          curl -L ${{ steps.detect.outputs.macos_url }} -o swift.pkg
+          URL="${{ steps.detect.outputs.macos_url }}"
+          FALLBACK_URL="https://download.swift.org/swift-6.0.1-release/xcode/swift-6.0.1-RELEASE-osx.pkg"
+
+          echo "⬇️ Downloading Swift pkg from: $URL"
+          curl -L --retry 3 --retry-delay 5 -o swift.pkg "$URL"
+
+          # ✅ 파일 크기 검사 및 fallback
+          FILE_SIZE=$(stat -f%z swift.pkg)
+          if [ "$FILE_SIZE" -lt 100000 ]; then
+            echo "⚠️ Downloaded pkg too small ($FILE_SIZE bytes). Retrying with fallback..."
+            rm -f swift.pkg
+            curl -L --retry 3 --retry-delay 5 -o swift.pkg "$FALLBACK_URL"
+          fi
+
+          echo "✅ Swift pkg ready. Installing..."
           sudo installer -pkg swift.pkg -target /
+
+          echo "🔍 Verifying Swift installation..."
           swift --version
 
       # ---------- 3. 빌드 ----------
@@ -146,5 +168,5 @@ jobs:
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Linux & macOS only (Windows excluded)
-            - Auto-fallback to Swift 6.0.1 if swift.org is unreachable
+            - Linux & macOS only
+            - Auto-fallback if Swift.org unreachable
