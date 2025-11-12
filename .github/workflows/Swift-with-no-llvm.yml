@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Dual-Platform Build & Auto Release (Final Stable v16 / Linux + macOS Only)"
+name: "Swift-with-no-llvm — Dual-Platform Build & Auto Release (v16.1 / Linux+macOS Auto-Fallback Edition)"
 
 on:
   push:
@@ -20,7 +20,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
 
     steps:
-      # ---------- 0. Checkout (retry + timeout) ----------
+      # ---------- 0. Checkout ----------
       - name: Checkout Repository (with retry)
         uses: actions/checkout@v4
         with:
@@ -39,19 +39,31 @@ jobs:
           echo "✅ Repository ready"
           ls -al
 
-      # ---------- 1. 최신 Swift.org URL 자동 감지 ----------
+      # ---------- 1. Swift.org URL 자동 감지 + 실패 방지 ----------
       - name: Detect Latest Swift Release URL
         id: detect
         shell: bash
         run: |
+          set +e
           echo "🔍 Detecting latest Swift release URLs from swift.org..."
-          SWIFT_URL_LINUX=$(curl -s https://www.swift.org/install/linux/ | grep -o 'https://download.swift.org/swift-[^"]*-release/ubuntu2204/swift-[^"]*.tar.gz' | head -n 1)
+
+          SWIFT_URL_LINUX=$(curl -fsSL https://www.swift.org/install/linux/ | \
+            grep -o 'https://download.swift.org/swift-[^"]*-release/ubuntu2204/swift-[^"]*.tar.gz' | head -n 1)
+          
+          if [ -z "$SWIFT_URL_LINUX" ]; then
+            echo "⚠️ Could not detect Linux URL, using fallback Swift 6.0.1"
+            SWIFT_URL_LINUX="https://download.swift.org/swift-6.0.1-release/ubuntu2204/swift-6.0.1-RELEASE-ubuntu22.04.tar.gz"
+          fi
+
           SWIFT_URL_MACOS="https://download.swift.org/swift-6.0.1-release/xcode/swift-6.0.1-RELEASE-osx.pkg"
+
           echo "linux_url=$SWIFT_URL_LINUX" >> $GITHUB_OUTPUT
           echo "macos_url=$SWIFT_URL_MACOS" >> $GITHUB_OUTPUT
+
           echo "✅ Detected URLs:"
           echo "Linux:   $SWIFT_URL_LINUX"
           echo "macOS:   $SWIFT_URL_MACOS"
+          set -e
 
       # ---------- 2. Swift 설치 ----------
       - name: Install Swift (Linux)
@@ -134,4 +146,5 @@ jobs:
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Linux & macOS builds only (Windows excluded for stability)
+            - Linux & macOS only (Windows excluded)
+            - Auto-fallback to Swift 6.0.1 if swift.org is unreachable
