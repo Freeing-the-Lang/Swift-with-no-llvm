@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v11 / Fully Fixed WSL Paths)"
+name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v12 / Auto WSL Setup)"
 
 on:
   push:
@@ -46,47 +46,51 @@ jobs:
           brew install swift nasm || true
           swift --version
 
-      # ---------- 2. Windows (WSL 내부 빌드) ----------
-      - name: Install & Build Swift inside Preinstalled WSL (Windows)
+      # ---------- 2. Windows (WSL 자동설치 + 빌드) ----------
+      - name: Install & Build Swift inside Auto-Installed WSL (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Write-Host "🪟 Preparing existing WSL Ubuntu environment..."
+          Write-Host "🪟 Setting up WSL Ubuntu distribution..."
           wsl --set-default-version 2
-          wsl --update
-          Write-Host "✅ Using preinstalled Ubuntu image."
+          wsl --install -d Ubuntu --no-launch
+          Write-Host "✅ Ubuntu WSL distribution installed."
 
-          # 1️⃣ 환경 확인
-          wsl echo "WSL active"
+          # 첫 실행 초기화 (루트 계정 생성)
+          Write-Host "⏳ Initializing WSL Ubuntu (first launch)..."
+          wsl -d Ubuntu --exec true
+          Start-Sleep -Seconds 25
+          wsl echo "✅ Ubuntu WSL initialized and ready."
 
-          # 2️⃣ 도구 설치
-          wsl sudo apt-get update
-          wsl sudo apt-get install -y clang libicu-dev curl tar nasm zip unzip
+          # 패키지 설치
+          wsl -d Ubuntu -- sudo apt-get update
+          wsl -d Ubuntu -- sudo apt-get install -y clang libicu-dev curl tar nasm zip unzip
 
-          # 3️⃣ Swift 설치
-          wsl bash -c "curl -L https://download.swift.org/swift-6.0-release/ubuntu2204/swift-6.0-RELEASE-ubuntu22.04.tar.gz -o swift.tar.gz"
-          wsl bash -c "tar xzf swift.tar.gz && sudo mv swift-6.0-RELEASE-ubuntu22.04 /usr/local/swift-6.0"
-          wsl bash -c "/usr/local/swift-6.0/usr/bin/swift --version"
-          Write-Host "✅ Swift 6.0 installed in WSL Ubuntu"
+          # Swift 다운로드 및 설치
+          Write-Host "⬇️ Installing Swift 6.0 inside WSL..."
+          wsl -d Ubuntu -- bash -c "curl -L https://download.swift.org/swift-6.0-release/ubuntu2204/swift-6.0-RELEASE-ubuntu22.04.tar.gz -o swift.tar.gz"
+          wsl -d Ubuntu -- bash -c "tar xzf swift.tar.gz && sudo mv swift-6.0-RELEASE-ubuntu22.04 /usr/local/swift-6.0"
+          wsl -d Ubuntu -- bash -c "/usr/local/swift-6.0/usr/bin/swift --version"
+          Write-Host "✅ Swift 6.0 installed successfully inside WSL."
 
-          # 4️⃣ 실제 GitHub Actions 경로 구조에 맞춘 빌드 디렉터리 설정
+          # GitHub Actions 경로 설정
           $repoDir = "Swift-with-no-llvm"
           $basePath = "D:\\a\\$repoDir\\$repoDir"
           $distPath = Join-Path $basePath "dist"
-          Write-Host "⚙️ Building inside WSL → $basePath"
 
-          # 5️⃣ WSL 내부 빌드 실행
-          wsl bash -c "mkdir -p /mnt/d/a/$repoDir/$repoDir/dist"
-          wsl bash -c "cd /mnt/d/a/$repoDir/$repoDir && /usr/local/swift-6.0/usr/bin/swiftc src/main.swift -o dist/swift_no_llvm"
-          Write-Host "✅ Build complete inside WSL"
+          # Swift 빌드
+          Write-Host "⚙️ Building project inside WSL → $basePath"
+          wsl -d Ubuntu -- bash -c "mkdir -p /mnt/d/a/$repoDir/$repoDir/dist"
+          wsl -d Ubuntu -- bash -c "cd /mnt/d/a/$repoDir/$repoDir && /usr/local/swift-6.0/usr/bin/swiftc src/main.swift -o dist/swift_no_llvm"
+          Write-Host "✅ Build complete inside WSL."
 
-          # 6️⃣ ProofLedger + ZIP
-          wsl bash -c "cd /mnt/d/a/$repoDir/$repoDir/dist && echo 'print(\"Hello from Swift-with-no-llvm!\")' > sample.swift && ./swift_no_llvm"
-          wsl bash -c "cd /mnt/d/a/$repoDir/$repoDir/dist && sha256sum out.s > PROOF_LEDGER.txt || shasum -a 256 out.s > PROOF_LEDGER.txt && cat PROOF_LEDGER.txt"
-          wsl bash -c "cd /mnt/d/a/$repoDir/$repoDir/dist && zip -r swift-with-no-llvm-windows-wsl.zip ."
-          Write-Host "📦 Packaging done inside WSL"
+          # ProofLedger + ZIP
+          wsl -d Ubuntu -- bash -c "cd /mnt/d/a/$repoDir/$repoDir/dist && echo 'print(\"Hello from Swift-with-no-llvm!\")' > sample.swift && ./swift_no_llvm"
+          wsl -d Ubuntu -- bash -c "cd /mnt/d/a/$repoDir/$repoDir/dist && sha256sum out.s > PROOF_LEDGER.txt || shasum -a 256 out.s > PROOF_LEDGER.txt"
+          wsl -d Ubuntu -- bash -c "cd /mnt/d/a/$repoDir/$repoDir/dist && zip -r swift-with-no-llvm-windows-wsl.zip ."
+          Write-Host "📦 Packaging complete inside WSL."
 
-          # 7️⃣ ZIP 복사
+          # ZIP 복사
           mkdir dist
           $zipFile = Join-Path $distPath "swift-with-no-llvm-windows-wsl.zip"
           if (Test-Path $zipFile) {
@@ -142,4 +146,4 @@ jobs:
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Windows builds executed inside preinstalled WSL Ubuntu (fully resolved path version)
+            - Windows builds executed inside automatically installed WSL Ubuntu
