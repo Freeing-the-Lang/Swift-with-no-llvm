@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v7 / WSL Fully Supported)"
+name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v8 / Fast WSL Edition)"
 
 on:
   push:
@@ -46,50 +46,41 @@ jobs:
           brew install swift nasm || true
           swift --version
 
-      # ---------- 2. Windows — Swift 설치 및 빌드 (WSL 내부) ----------
-      - name: Install & Build Swift inside WSL (Windows)
+      # ---------- 2. Windows — Swift 설치 및 빌드 (빠른 WSL 방식) ----------
+      - name: Install & Build Swift inside Preinstalled WSL (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Write-Host "🪟 Installing Swift 6.0 inside WSL Ubuntu..."
-          # 1️⃣  WSL Ubuntu 설치
-          wsl --install -d Ubuntu --no-launch
-          Write-Host "⏳ Waiting for WSL to finish initialization..."
-          Start-Sleep -Seconds 25
-          Write-Host "🚀 Launching WSL for the first time..."
-          wsl echo "✅ Ubuntu WSL initialized successfully."
+          Write-Host "🪟 Preparing existing WSL Ubuntu environment..."
+          wsl --set-default-version 2
+          wsl --update
+          Write-Host "✅ Using preinstalled Ubuntu image."
 
-          # 2️⃣  패키지 업데이트 및 기본 도구 설치
+          # 1️⃣ 환경 확인
+          wsl echo "WSL active"
+
+          # 2️⃣ 도구 설치
           wsl sudo apt-get update
           wsl sudo apt-get install -y clang libicu-dev curl tar nasm zip unzip
 
-          # 3️⃣  Swift 설치
+          # 3️⃣ Swift 설치
           wsl bash -c "curl -L https://download.swift.org/swift-6.0-release/ubuntu2204/swift-6.0-RELEASE-ubuntu22.04.tar.gz -o swift.tar.gz"
           wsl bash -c "tar xzf swift.tar.gz && sudo mv swift-6.0-RELEASE-ubuntu22.04 /usr/local/swift-6.0"
-          Write-Host "✅ Swift 6.0 installed inside WSL Ubuntu"
-
-          # 4️⃣  Swift 버전 확인
+          Write-Host "✅ Swift 6.0 installed in WSL Ubuntu"
           wsl bash -c "/usr/local/swift-6.0/usr/bin/swift --version"
 
-          # 5️⃣  빌드 수행
+          # 4️⃣ 빌드
           Write-Host "⚙️  Building project inside WSL..."
           wsl bash -c "mkdir -p /mnt/d/a/swiftbuild/dist"
           wsl bash -c "cd /mnt/d/a/swiftbuild && /usr/local/swift-6.0/usr/bin/swiftc /mnt/d/a/_work/${{ github.repository }}/src/main.swift -o dist/swift_no_llvm"
           Write-Host "✅ Build complete inside WSL"
 
-          # 6️⃣  ASM 생성
-          Write-Host "🧩 Generating ASM inside WSL..."
-          wsl bash -c "cd /mnt/d/a/swiftbuild/dist && echo 'print(\"Hello from Swift-with-no-llvm!\")' > sample.swift && ./swift_no_llvm && ls -lh"
-
-          # 7️⃣  ProofLedger 생성
-          Write-Host "🧾 Creating ProofLedger..."
+          # 5️⃣ ASM 생성 및 ProofLedger
+          wsl bash -c "cd /mnt/d/a/swiftbuild/dist && echo 'print(\"Hello from Swift-with-no-llvm!\")' > sample.swift && ./swift_no_llvm"
           wsl bash -c "cd /mnt/d/a/swiftbuild/dist && sha256sum out.s > PROOF_LEDGER.txt || shasum -a 256 out.s > PROOF_LEDGER.txt && cat PROOF_LEDGER.txt"
 
-          # 8️⃣  패키징
-          Write-Host "📦 Packaging build artifacts..."
+          # 6️⃣ 패키징
           wsl bash -c "cd /mnt/d/a/swiftbuild/dist && zip -r ../swift-with-no-llvm-windows-wsl.zip ."
-
-          # 9️⃣  산출물 복사
           mkdir dist
           Copy-Item -Recurse -Force D:\a\swiftbuild\swift-with-no-llvm-windows-wsl.zip dist\
 
@@ -137,4 +128,4 @@ jobs:
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Windows builds executed inside WSL Ubuntu for full Swift compatibility
+            - Windows builds executed inside preinstalled WSL Ubuntu (fast mode)
