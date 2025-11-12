@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Windows GitHub Source)"
+name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable)"
 
 on:
   push:
@@ -44,15 +44,13 @@ jobs:
           brew install swift || true
           swift --version
 
-      - name: "Install Swift (Windows from GitHub Release)"
+      - name: "Install Swift (Windows via Chocolatey)"
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Write-Host "🪟 Installing Swift 5.10.1 for Windows (from GitHub release)..."
-          $url = "https://github.com/apple/swift/releases/download/swift-5.10.1-RELEASE/swift-5.10.1-RELEASE-windows10.exe"
-          Invoke-WebRequest -Uri $url -OutFile swift-installer.exe
-          Start-Process -FilePath .\swift-installer.exe -ArgumentList "/quiet" -Wait
-          Write-Host "✅ Swift 5.10.1 installed successfully"
+          Write-Host "🪟 Installing Swift using Chocolatey..."
+          choco install swift -y --force
+          Write-Host "✅ Swift installed via Chocolatey"
           swift --version
 
       # ---------- 빌드 ----------
@@ -118,4 +116,4 @@ jobs:
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Windows uses Swift 5.10.1 (from official GitHub release)
+            - Windows uses Chocolatey Swift build
