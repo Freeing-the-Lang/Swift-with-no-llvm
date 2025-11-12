@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — 3OS Build & ASM Proof"
+name: "Swift-with-no-llvm — 3OS Build & ASM Proof (Auto-Fix Ubuntu)"
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   pull_request:
     types: [ closed ]
   schedule:
-    - cron: "0 0 * * *"   # 매일 자동 빌드
+    - cron: "0 0 * * *"
   workflow_dispatch:
 
 permissions:
@@ -26,10 +26,41 @@ jobs:
     steps:
       - name: "Checkout Repository"
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: "Setup Swift"
+      - name: "Detect Ubuntu Version (for fallback)"
+        id: detect
+        if: runner.os == 'Linux'
+        run: |
+          echo "Detected OS:"
+          cat /etc/os-release
+          UBUNTU_VERSION=$(grep VERSION_ID /etc/os-release | cut -d '"' -f 2)
+          echo "Ubuntu version: $UBUNTU_VERSION"
+          if [[ "$UBUNTU_VERSION" == "24.04" ]]; then
+            echo "use_fallback=true" >> $GITHUB_OUTPUT
+          else
+            echo "use_fallback=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: "Setup Swift (auto-fix)"
+        if: runner.os == 'Linux' && steps.detect.outputs.use_fallback == 'false'
+        uses: swift-actions/setup-swift@v1
+        with:
+          swift-version: "6.0"
+
+      - name: "Install Swift manually (fallback for 24.04)"
+        if: runner.os == 'Linux' && steps.detect.outputs.use_fallback == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libicu-dev
+          echo "🩹 Ubuntu 24.04 detected — installing Swift manually..."
+          curl -L https://download.swift.org/swift-6.0-release/ubuntu2204/swift-6.0-RELEASE-ubuntu22.04.tar.gz -o swift.tar.gz
+          tar xzf swift.tar.gz
+          sudo mv swift-6.0-RELEASE-ubuntu22.04 /usr/local/swift-6.0
+          echo "/usr/local/swift-6.0/usr/bin" >> $GITHUB_PATH
+          swift --version || echo "Swift installed manually."
+
+      - name: "Setup Swift (macOS / Windows)"
+        if: runner.os != 'Linux'
         uses: swift-actions/setup-swift@v1
         with:
           swift-version: "6.0"
@@ -46,7 +77,6 @@ jobs:
           echo 'print "Hello from CI Swift-with-no-llvm!"' > sample.swift
           ./swift_no_llvm
           echo "✅ ASM generated: out.s"
-          ls -l out.s
 
       - name: "Assemble & Run (Linux/macOS only)"
         if: runner.os != 'Windows'
@@ -54,14 +84,13 @@ jobs:
           cd dist
           nasm -felf64 out.s -o out.o || true
           ld out.o -o out || true
-          echo "🔹 Running generated binary (if available)..."
+          echo "🔹 Executing generated binary (if available)..."
           ./out || true
 
-      - name: "Generate ProofLedger (SHA256)"
-        shell: bash
+      - name: "Generate ProofLedger"
         run: |
           cd dist
-          sha256sum out.s > PROOF_LEDGER.txt
+          sha256sum out.s > PROOF_LEDGER.txt || shasum -a 256 out.s > PROOF_LEDGER.txt
           echo "✅ ProofLedger created:"
           cat PROOF_LEDGER.txt
 
