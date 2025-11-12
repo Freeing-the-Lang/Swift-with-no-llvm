@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Dual-Platform Build & Auto Release (v16.3 / Long Timeout & Retry Edition)"
+name: "Swift-with-no-llvm — v21 (C++ Re-Interpreter Build & ASM Generator)"
 
 on:
   push:
@@ -9,169 +9,91 @@ permissions:
   contents: write
 
 concurrency:
-  group: swift-with-no-llvm-${{ github.ref }}
+  group: swift-reinterpreter-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  build-and-release:
+  build-cpp-reinterpreter:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
 
     steps:
-      # ---------- 0. Checkout ----------
-      - name: Checkout Repository (with retry)
+      # ---------- 0️⃣ Checkout ----------
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-        timeout-minutes: 8
-        continue-on-error: true
 
-      - name: Verify Checkout
-        shell: bash
+      # ---------- 1️⃣ Build Environment ----------
+      - name: Setup C++ Build Environment
         run: |
-          if [ ! -d .git ]; then
-            echo "⚠️ Checkout failed, retrying manually..."
-            rm -rf * .git
-            git clone $GITHUB_SERVER_URL/$GITHUB_REPOSITORY .
-          fi
-          echo "✅ Repository ready"
-          ls -al
+          sudo apt-get update -y || true
+          sudo apt-get install -y g++ nasm python3 make || true
+          echo "✅ C++ & NASM installed."
 
-      # ---------- 1. Swift.org URL 자동 감지 + 실패 방지 ----------
-      - name: Detect Latest Swift Release URL
-        id: detect
-        shell: bash
+      # ---------- 2️⃣ Compile Swift Re-Interpreter ----------
+      - name: Build C++ Swift Re-Interpreter
         run: |
-          set +e
-          echo "🔍 Detecting latest Swift release URLs from swift.org..."
+          mkdir -p build dist
+          echo "⚙️ Compiling Swift Re-Interpreter..."
+          g++ -std=c++17 src/main.cpp -o build/swift_reinterpreter
+          echo "✅ Re-Interpreter compiled successfully."
 
-          SWIFT_URL_LINUX=$(curl -fsSL https://www.swift.org/install/linux/ | \
-            grep -o 'https://download.swift.org/swift-[^"]*-release/ubuntu2204/swift-[^"]*.tar.gz' | head -n 1)
-
-          if [ -z "$SWIFT_URL_LINUX" ]; then
-            echo "⚠️ Could not detect Linux URL, using fallback Swift 6.0.1"
-            SWIFT_URL_LINUX="https://download.swift.org/swift-6.0.1-release/ubuntu2204/swift-6.0.1-RELEASE-ubuntu22.04.tar.gz"
-          fi
-
-          SWIFT_URL_MACOS=$(curl -fsSL https://www.swift.org/install/macos/ | \
-            grep -o 'https://download.swift.org/swift-[^"]*-release/xcode/swift-[^"]*-osx.pkg' | head -n 1)
-
-          if [ -z "$SWIFT_URL_MACOS" ]; then
-            echo "⚠️ Could not detect macOS URL, using fallback Swift 6.0.1"
-            SWIFT_URL_MACOS="https://download.swift.org/swift-6.0.1-release/xcode/swift-6.0.1-RELEASE-osx.pkg"
-          fi
-
-          echo "linux_url=$SWIFT_URL_LINUX" >> $GITHUB_OUTPUT
-          echo "macos_url=$SWIFT_URL_MACOS" >> $GITHUB_OUTPUT
-
-          echo "✅ Detected URLs:"
-          echo "Linux:   $SWIFT_URL_LINUX"
-          echo "macOS:   $SWIFT_URL_MACOS"
-          set -e
-
-      # ---------- 2. Swift 설치 ----------
-      - name: Install Swift (Linux)
-        if: runner.os == 'Linux'
-        timeout-minutes: 20   # ⏱️ 시간 늘림
+      # ---------- 3️⃣ Run Translation: Swift → C++ → ASM ----------
+      - name: Run Re-Interpreter
         run: |
-          set -e
-          echo "🐧 Installing Swift dependencies..."
-          sudo apt-get update -y || (sleep 10 && sudo apt-get update -y)
-          sudo apt-get install -y clang libicu-dev curl tar nasm || (sleep 10 && sudo apt-get install -y clang libicu-dev curl tar nasm)
+          echo "🧩 Translating Swift → C++ → ASM..."
+          ./build/swift_reinterpreter
+          echo "✅ Translation completed."
+          ls -l out.cpp out.asm || ls -l dist/
 
-          echo "🐧 Installing Swift toolchain..."
-          curl -L --retry 3 --retry-delay 5 -o swift.tar.gz ${{ steps.detect.outputs.linux_url }}
-
-          tar xzf swift.tar.gz
-          SWIFT_DIR=$(tar -tzf swift.tar.gz | head -n1 | cut -f1 -d"/")
-          sudo mv $SWIFT_DIR /usr/local/swift
-          echo "/usr/local/swift/usr/bin" >> $GITHUB_PATH
-          echo "🔍 Verifying Swift installation..."
-          swift --version
-
-      - name: Install Swift (macOS)
-        if: runner.os == 'macOS'
-        timeout-minutes: 15
-        run: |
-          echo "🍎 Installing Swift..."
-          URL="${{ steps.detect.outputs.macos_url }}"
-          FALLBACK_URL="https://download.swift.org/swift-6.0.1-release/xcode/swift-6.0.1-RELEASE-osx.pkg"
-
-          echo "⬇️ Downloading Swift pkg from: $URL"
-          curl -L --retry 3 --retry-delay 5 -o swift.pkg "$URL"
-
-          # ✅ 파일 크기 검사 및 fallback
-          FILE_SIZE=$(stat -f%z swift.pkg)
-          if [ "$FILE_SIZE" -lt 100000 ]; then
-            echo "⚠️ Downloaded pkg too small ($FILE_SIZE bytes). Retrying with fallback..."
-            rm -f swift.pkg
-            curl -L --retry 3 --retry-delay 5 -o swift.pkg "$FALLBACK_URL"
-          fi
-
-          echo "✅ Swift pkg ready. Installing..."
-          sudo installer -pkg swift.pkg -target /
-
-          echo "🔍 Verifying Swift installation..."
-          swift --version
-
-      # ---------- 3. 빌드 ----------
-      - name: Build Swift Project
-        timeout-minutes: 10
-        run: |
-          mkdir -p dist
-          swiftc src/main.swift -o dist/swift_no_llvm
-          echo "✅ Build complete for ${{ matrix.os }}"
-
-      # ---------- 4. ProofLedger ----------
+      # ---------- 4️⃣ ProofLedger ----------
       - name: Generate ProofLedger
-        timeout-minutes: 5
         run: |
-          cd dist
-          if [ -f out.s ]; then
-            sha256sum out.s > PROOF_LEDGER.txt || shasum -a 256 out.s > PROOF_LEDGER.txt
-          else
-            echo "No ASM output detected, creating placeholder hash." > PROOF_LEDGER.txt
-          fi
+          echo "🧾 Generating ProofLedger..."
+          mkdir -p dist
+          sha256sum out.cpp > dist/PROOF_LEDGER.txt || shasum -a 256 out.cpp > dist/PROOF_LEDGER.txt
+          sha256sum out.asm >> dist/PROOF_LEDGER.txt || shasum -a 256 out.asm >> dist/PROOF_LEDGER.txt
           echo "✅ ProofLedger created:"
-          cat PROOF_LEDGER.txt
+          cat dist/PROOF_LEDGER.txt
 
-      # ---------- 5. 패키징 ----------
-      - name: Package Artifacts
+      # ---------- 5️⃣ Package Artifacts ----------
+      - name: Package Results
         run: |
-          cd dist
-          zip -r ../swift-with-no-llvm-${{ matrix.os }}.zip .
-          echo "📦 Packaged swift-with-no-llvm-${{ matrix.os }}.zip"
+          echo "📦 Packaging results..."
+          mkdir -p dist
+          mv out.cpp dist/ || true
+          mv out.asm dist/ || true
+          zip -r swift-reinterpreter-${{ matrix.os }}.zip dist
+          echo "✅ Packaging complete."
 
-      # ---------- 6. 자동 태그 ----------
+      # ---------- 6️⃣ Create Auto Tag ----------
       - name: Create Auto Tag
         id: tag
         shell: bash
-        timeout-minutes: 3
         run: |
           VERSION="v$(date +%Y%m%d%H%M%S)"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git tag -a "$VERSION" -m "Swift-with-no-llvm auto release $VERSION"
+          git tag -a "$VERSION" -m "Swift Re-Interpreter auto release $VERSION"
           git push origin "$VERSION"
           echo "🔖 Created tag $VERSION"
 
-      # ---------- 7. 자동 릴리즈 ----------
+      # ---------- 7️⃣ Publish GitHub Release ----------
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v1
-        timeout-minutes: 5
         with:
           tag_name: ${{ steps.tag.outputs.version }}
-          name: "Swift-with-no-llvm — ${{ steps.tag.outputs.version }}"
+          name: "Swift-with-no-llvm — C++ Re-Interpreter ${{ steps.tag.outputs.version }}"
           files: |
             dist/**/*.zip
             dist/**/*.txt
           body: |
-            ✅ Auto-built release for Swift-with-no-llvm
+            ✅ Auto-built Swift → C++ → ASM Re-Interpreter release
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Linux & macOS only
-            - Long Timeout + Auto Retry for apt & curl
+            - Full C++ re-interpreter build (no LLVM)
