@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Windows auto-asset)"
+name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v3)"
 
 on:
   push:
@@ -20,12 +20,13 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
+      # ---------- 0. 코드 체크아웃 ----------
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ---------- Swift 설치 ----------
+      # ---------- 1. Swift 설치 ----------
       - name: Install Swift (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -45,7 +46,7 @@ jobs:
           brew install swift nasm || true
           swift --version
 
-      - name: Install Swift (Windows via GitHub Releases auto)
+      - name: Install Swift (Windows via GitHub + fallback)
         if: runner.os == 'Windows'
         shell: pwsh
         env:
@@ -53,69 +54,57 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Write-Host "🪟 Resolving Swift Windows asset from apple/swift releases..."
-          # 우선순위: zip(x64) > zip(windows11) > zip(generic) > exe(x64)
           $patterns = @(
             'swift-*-RELEASE-windows10-x64.zip',
             'swift-*-RELEASE-windows11-x64.zip',
-            'swift-*-RELEASE-windows10.zip',
-            'swift-*-RELEASE-windows11.zip',
-            'swift-*-RELEASE-windows10-x64.exe',
-            'swift-*-RELEASE-windows11-x64.exe'
+            'swift-*-RELEASE-windowsservercore-ltsc2022.zip'
           )
-
           $downloaded = $false
           foreach ($p in $patterns) {
             try {
               Write-Host "→ Trying pattern: $p"
-              gh release download -R apple/swift -p $p -O swift.bin --clobber
-              $selected = $p
+              gh release download -R apple/swift -p $p -O swift_asset --clobber
               $downloaded = $true
               break
             } catch {
-              Write-Host "  (no match for $p)"
+              Write-Host "  (no match or download failed for $p)"
             }
           }
 
           if (-not $downloaded) {
-            Write-Error "No suitable Windows Swift asset found on apple/swift releases."
-          }
-
-          $ext = [System.IO.Path]::GetExtension("swift.bin")
-          if ($ext -ieq ".zip") {
-            Write-Host "📦 Extracting ZIP..."
-            $swiftDir = "C:\swift"
-            if (Test-Path $swiftDir) { Remove-Item -Recurse -Force $swiftDir }
-            Expand-Archive -Path swift.bin -DestinationPath $swiftDir -Force
-            $binPath = (Get-ChildItem "$swiftDir" -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName + "\usr\bin"
-            if (!(Test-Path $binPath)) { throw "Swift bin path not found: $binPath" }
-            echo "$binPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-            Write-Host "✅ Added $binPath to PATH"
-          } elseif ($ext -ieq ".exe") {
-            Write-Host "🛠 Running installer EXE silently..."
-            Start-Process -FilePath .\swift.bin -ArgumentList "/quiet" -Wait
+            Write-Host "⚠️ No matching asset found — using fallback Swift 5.10.1 installer"
+            $fallback = "https://download.swift.org/swift-5.10.1-release/windows10-x64/swift-5.10.1-RELEASE-windows10-x64.exe"
+            Invoke-WebRequest -Uri $fallback -OutFile swift_fallback.exe
+            Start-Process -FilePath .\swift_fallback.exe -ArgumentList "/quiet" -Wait
             $binPath = 'C:\Program Files\Swift\bin'
             if (Test-Path $binPath) {
               echo "$binPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-              Write-Host "✅ Added $binPath to PATH"
             } else {
-              Write-Host "⚠️ C:\\Program Files\\Swift\\bin not found; listing Program Files for debugging:"
+              Write-Host "⚠️ Swift fallback path not found; listing C:\\Program Files"
               Get-ChildItem 'C:\Program Files' | Write-Host
             }
           } else {
-            throw "Unknown asset type: $ext"
+            Write-Host "📦 Extracting downloaded asset..."
+            Expand-Archive -Path swift_asset -DestinationPath "C:\swift" -Force
+            $binPath = (Get-ChildItem "C:\swift" -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName + "\usr\bin"
+            if (!(Test-Path $binPath)) {
+              Write-Host "⚠️ Could not locate usr\\bin folder inside archive, using fallback search..."
+              $binPath = Get-ChildItem -Recurse -Directory -Path "C:\swift" | Where-Object { $_.Name -eq "bin" } | Select-Object -First 1 | ForEach-Object { $_.FullName }
+            }
+            echo "$binPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           }
 
-          Write-Host "🔎 swift --version"
+          Write-Host "🔍 Checking Swift version..."
           swift --version
 
-      # ---------- 빌드 ----------
+      # ---------- 2. 빌드 ----------
       - name: Build ASM Generator
         run: |
           mkdir -p dist
           swiftc src/main.swift -o dist/swift_no_llvm
           echo "✅ Build complete for ${{ matrix.os }}"
 
-      # ---------- ASM 생성 ----------
+      # ---------- 3. ASM 생성 ----------
       - name: Generate ASM
         run: |
           cd dist
@@ -124,7 +113,7 @@ jobs:
           echo "✅ ASM generated: out.s"
           ls -lh out.s || dir out.s
 
-      # ---------- 어셈블 & 실행 (Linux/macOS만) ----------
+      # ---------- 4. 어셈블 및 실행 (Linux/macOS만) ----------
       - name: Assemble & Run (Linux/macOS only)
         if: runner.os != 'Windows'
         run: |
@@ -133,7 +122,7 @@ jobs:
           ld out.o -o out || true
           ./out || true
 
-      # ---------- ProofLedger ----------
+      # ---------- 5. ProofLedger ----------
       - name: Generate ProofLedger
         run: |
           cd dist
@@ -141,14 +130,14 @@ jobs:
           echo "✅ ProofLedger created:"
           cat PROOF_LEDGER.txt
 
-      # ---------- 패키징 ----------
+      # ---------- 6. 패키징 ----------
       - name: Package Artifacts
         run: |
           cd dist
           zip -r ../swift-with-no-llvm-${{ matrix.os }}.zip .
           echo "📦 Packaged swift-with-no-llvm-${{ matrix.os }}.zip"
 
-      # ---------- 태그 ----------
+      # ---------- 7. 태그 ----------
       - name: Create Auto Tag
         id: tag
         shell: bash
@@ -161,7 +150,7 @@ jobs:
           git push origin "$VERSION"
           echo "🔖 Created tag $VERSION"
 
-      # ---------- 릴리즈 ----------
+      # ---------- 8. 릴리즈 ----------
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v1
         with:
@@ -176,4 +165,4 @@ jobs:
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Windows Swift pulled from apple/swift releases (pattern auto-detect)
+            - Windows Swift auto-detected or fallback 5.10.1 installer
