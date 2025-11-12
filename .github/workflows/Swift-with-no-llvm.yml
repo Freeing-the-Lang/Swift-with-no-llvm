@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v10 / Fully Resolved WSL Edition)"
+name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v11 / Fully Fixed WSL Paths)"
 
 on:
   push:
@@ -46,7 +46,7 @@ jobs:
           brew install swift nasm || true
           swift --version
 
-      # ---------- 2. Windows (WSL 빌드) ----------
+      # ---------- 2. Windows (WSL 내부 빌드) ----------
       - name: Install & Build Swift inside Preinstalled WSL (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -69,21 +69,24 @@ jobs:
           wsl bash -c "/usr/local/swift-6.0/usr/bin/swift --version"
           Write-Host "✅ Swift 6.0 installed in WSL Ubuntu"
 
-          # 4️⃣ 빌드
-          $repoPath = "D:\\a\\_work\\${{ github.repository }}"
-          $distPath = Join-Path $repoPath "dist"
-          Write-Host "⚙️ Building in WSL → $distPath"
-          wsl bash -c "mkdir -p /mnt/d/a/_work/${{ github.repository }}/dist"
-          wsl bash -c "cd /mnt/d/a/_work/${{ github.repository }} && /usr/local/swift-6.0/usr/bin/swiftc src/main.swift -o dist/swift_no_llvm"
+          # 4️⃣ 실제 GitHub Actions 경로 구조에 맞춘 빌드 디렉터리 설정
+          $repoDir = "Swift-with-no-llvm"
+          $basePath = "D:\\a\\$repoDir\\$repoDir"
+          $distPath = Join-Path $basePath "dist"
+          Write-Host "⚙️ Building inside WSL → $basePath"
+
+          # 5️⃣ WSL 내부 빌드 실행
+          wsl bash -c "mkdir -p /mnt/d/a/$repoDir/$repoDir/dist"
+          wsl bash -c "cd /mnt/d/a/$repoDir/$repoDir && /usr/local/swift-6.0/usr/bin/swiftc src/main.swift -o dist/swift_no_llvm"
           Write-Host "✅ Build complete inside WSL"
 
-          # 5️⃣ ProofLedger + ZIP
-          wsl bash -c "cd /mnt/d/a/_work/${{ github.repository }}/dist && echo 'print(\"Hello from Swift-with-no-llvm!\")' > sample.swift && ./swift_no_llvm"
-          wsl bash -c "cd /mnt/d/a/_work/${{ github.repository }}/dist && sha256sum out.s > PROOF_LEDGER.txt || shasum -a 256 out.s > PROOF_LEDGER.txt && cat PROOF_LEDGER.txt"
-          wsl bash -c "cd /mnt/d/a/_work/${{ github.repository }}/dist && zip -r swift-with-no-llvm-windows-wsl.zip ."
+          # 6️⃣ ProofLedger + ZIP
+          wsl bash -c "cd /mnt/d/a/$repoDir/$repoDir/dist && echo 'print(\"Hello from Swift-with-no-llvm!\")' > sample.swift && ./swift_no_llvm"
+          wsl bash -c "cd /mnt/d/a/$repoDir/$repoDir/dist && sha256sum out.s > PROOF_LEDGER.txt || shasum -a 256 out.s > PROOF_LEDGER.txt && cat PROOF_LEDGER.txt"
+          wsl bash -c "cd /mnt/d/a/$repoDir/$repoDir/dist && zip -r swift-with-no-llvm-windows-wsl.zip ."
           Write-Host "📦 Packaging done inside WSL"
 
-          # 6️⃣ ZIP 복사
+          # 7️⃣ ZIP 복사
           mkdir dist
           $zipFile = Join-Path $distPath "swift-with-no-llvm-windows-wsl.zip"
           if (Test-Path $zipFile) {
@@ -91,7 +94,7 @@ jobs:
             Write-Host "✅ Artifact copied successfully: $zipFile"
           } else {
             Write-Host "⚠️ ZIP not found → listing dist folder contents:"
-            Get-ChildItem -Recurse $distPath
+            Get-ChildItem -Recurse $basePath
             exit 1
           }
 
@@ -139,4 +142,4 @@ jobs:
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Windows builds executed inside preinstalled WSL Ubuntu (fully resolved paths)
+            - Windows builds executed inside preinstalled WSL Ubuntu (fully resolved path version)
