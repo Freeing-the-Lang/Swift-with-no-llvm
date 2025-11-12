@@ -20,12 +20,13 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
+      # ---------- 0. 코드 체크아웃 ----------
       - name: "Checkout Repository"
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ---------- Swift 설치 ----------
+      # ---------- 1. Swift 설치 ----------
       - name: "Install Swift (Linux)"
         if: runner.os == 'Linux'
         run: |
@@ -50,16 +51,25 @@ jobs:
         run: |
           Write-Host "🪟 Installing Swift using Chocolatey..."
           choco install swift -y --force
+          $swiftPath = 'C:\Program Files\Swift\bin'
+          if (Test-Path $swiftPath) {
+            Write-Host "Adding Swift to PATH..."
+            echo "$swiftPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          } else {
+            Write-Host "⚠️ Swift path not found, showing contents:"
+            Get-ChildItem "C:\Program Files\" | Write-Host
+          }
           Write-Host "✅ Swift installed via Chocolatey"
           swift --version
 
-      # ---------- 빌드 ----------
+      # ---------- 2. 빌드 ----------
       - name: "Build ASM Generator"
         run: |
           mkdir -p dist
           swiftc src/main.swift -o dist/swift_no_llvm
           echo "✅ Build complete for ${{ matrix.os }}"
 
+      # ---------- 3. ASM 생성 ----------
       - name: "Generate ASM"
         run: |
           cd dist
@@ -68,6 +78,7 @@ jobs:
           echo "✅ ASM generated: out.s"
           ls -lh out.s
 
+      # ---------- 4. 어셈블 및 실행 (Linux/macOS만) ----------
       - name: "Assemble & Run (Linux/macOS only)"
         if: runner.os != 'Windows'
         run: |
@@ -76,6 +87,7 @@ jobs:
           ld out.o -o out || true
           ./out || true
 
+      # ---------- 5. ProofLedger 생성 ----------
       - name: "Generate ProofLedger"
         run: |
           cd dist
@@ -83,13 +95,14 @@ jobs:
           echo "✅ ProofLedger created:"
           cat PROOF_LEDGER.txt
 
+      # ---------- 6. 아티팩트 패키징 ----------
       - name: "Package Artifacts"
         run: |
           cd dist
           zip -r ../swift-with-no-llvm-${{ matrix.os }}.zip .
           echo "📦 Packaged swift-with-no-llvm-${{ matrix.os }}.zip"
 
-      # ---------- 자동 릴리즈 ----------
+      # ---------- 7. 자동 태그 ----------
       - name: "Create Auto Tag"
         id: tag
         shell: bash
@@ -102,6 +115,7 @@ jobs:
           git push origin "$VERSION"
           echo "🔖 Created tag $VERSION"
 
+      # ---------- 8. 자동 릴리즈 ----------
       - name: "Publish GitHub Release"
         uses: softprops/action-gh-release@v1
         with:
