@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable)"
+name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v2)"
 
 on:
   push:
@@ -45,21 +45,22 @@ jobs:
           brew install swift || true
           swift --version
 
-      - name: "Install Swift (Windows via Chocolatey)"
+      - name: "Install Swift (Windows via ZIP binary)"
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Write-Host "🪟 Installing Swift using Chocolatey..."
-          choco install swift -y --force
-          $swiftPath = 'C:\Program Files\Swift\bin'
-          if (Test-Path $swiftPath) {
-            Write-Host "Adding Swift to PATH..."
-            echo "$swiftPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          } else {
-            Write-Host "⚠️ Swift path not found, showing contents:"
-            Get-ChildItem "C:\Program Files\" | Write-Host
-          }
-          Write-Host "✅ Swift installed via Chocolatey"
+          Write-Host "🪟 Installing Swift (manual ZIP extraction method)..."
+          $swiftUrl = "https://download.swift.org/swift-5.10.1-release/windows10-x64/swift-5.10.1-RELEASE-windows10-x64.zip"
+          $swiftDir = "C:\swift"
+          $zipFile = "swift.zip"
+
+          Invoke-WebRequest -Uri $swiftUrl -OutFile $zipFile
+          Expand-Archive -Path $zipFile -DestinationPath $swiftDir -Force
+          $binPath = (Get-ChildItem "$swiftDir" -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName + "\usr\bin"
+          Write-Host "Adding $binPath to PATH..."
+          echo "$binPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+          Write-Host "✅ Swift extracted successfully."
           swift --version
 
       # ---------- 2. 빌드 ----------
@@ -130,4 +131,4 @@ jobs:
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Windows uses Chocolatey Swift build
+            - Windows uses manual ZIP binary installation (no WSL dependency)
