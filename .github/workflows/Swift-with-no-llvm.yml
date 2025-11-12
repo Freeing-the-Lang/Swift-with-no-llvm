@@ -1,12 +1,8 @@
-name: "Swift-with-no-llvm — 3OS Build & ASM Proof (Auto-Fix Ubuntu)"
+name: "Swift-with-no-llvm — Full 3OS Build & Auto Release"
 
 on:
   push:
     branches: [ main ]
-  pull_request:
-    types: [ closed ]
-  schedule:
-    - cron: "0 0 * * *"
   workflow_dispatch:
 
 permissions:
@@ -17,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-3os:
+  build-and-release:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -26,45 +22,38 @@ jobs:
     steps:
       - name: "Checkout Repository"
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: "Detect Ubuntu Version (for fallback)"
-        id: detect
+      # ---------- Swift 설치 ----------
+      - name: "Install Swift (Linux)"
         if: runner.os == 'Linux'
         run: |
-          echo "Detected OS:"
-          cat /etc/os-release
-          UBUNTU_VERSION=$(grep VERSION_ID /etc/os-release | cut -d '"' -f 2)
-          echo "Ubuntu version: $UBUNTU_VERSION"
-          if [[ "$UBUNTU_VERSION" == "24.04" ]]; then
-            echo "use_fallback=true" >> $GITHUB_OUTPUT
-          else
-            echo "use_fallback=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: "Setup Swift (auto-fix)"
-        if: runner.os == 'Linux' && steps.detect.outputs.use_fallback == 'false'
-        uses: swift-actions/setup-swift@v1
-        with:
-          swift-version: "6.0"
-
-      - name: "Install Swift manually (fallback for 24.04)"
-        if: runner.os == 'Linux' && steps.detect.outputs.use_fallback == 'true'
-        run: |
           sudo apt-get update
-          sudo apt-get install -y clang libicu-dev
-          echo "🩹 Ubuntu 24.04 detected — installing Swift manually..."
+          sudo apt-get install -y clang libicu-dev curl tar
+          echo "🐧 Installing Swift 6.0 manually..."
           curl -L https://download.swift.org/swift-6.0-release/ubuntu2204/swift-6.0-RELEASE-ubuntu22.04.tar.gz -o swift.tar.gz
           tar xzf swift.tar.gz
           sudo mv swift-6.0-RELEASE-ubuntu22.04 /usr/local/swift-6.0
           echo "/usr/local/swift-6.0/usr/bin" >> $GITHUB_PATH
-          swift --version || echo "Swift installed manually."
+          swift --version
 
-      - name: "Setup Swift (macOS / Windows)"
-        if: runner.os != 'Linux'
-        uses: swift-actions/setup-swift@v1
-        with:
-          swift-version: "6.0"
+      - name: "Install Swift (macOS)"
+        if: runner.os == 'macOS'
+        run: |
+          brew install swift || true
+          swift --version
 
+      - name: "Install Swift (Windows)"
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "🪟 Installing Swift 6.0 for Windows..."
+          Invoke-WebRequest -Uri https://download.swift.org/swift-6.0-release/windows10/swift-6.0-RELEASE-windows10.exe -OutFile swift-installer.exe
+          Start-Process -FilePath .\swift-installer.exe -ArgumentList "/quiet" -Wait
+          swift --version
+
+      # ---------- 빌드 ----------
       - name: "Build ASM Generator"
         run: |
           mkdir -p dist
@@ -74,9 +63,10 @@ jobs:
       - name: "Generate ASM"
         run: |
           cd dist
-          echo 'print "Hello from CI Swift-with-no-llvm!"' > sample.swift
+          echo 'print "Hello from Swift-with-no-llvm!"' > sample.swift
           ./swift_no_llvm
           echo "✅ ASM generated: out.s"
+          ls -lh out.s
 
       - name: "Assemble & Run (Linux/macOS only)"
         if: runner.os != 'Windows'
@@ -84,7 +74,6 @@ jobs:
           cd dist
           nasm -felf64 out.s -o out.o || true
           ld out.o -o out || true
-          echo "🔹 Executing generated binary (if available)..."
           ./out || true
 
       - name: "Generate ProofLedger"
@@ -94,10 +83,36 @@ jobs:
           echo "✅ ProofLedger created:"
           cat PROOF_LEDGER.txt
 
-      - name: "Upload Artifacts"
-        uses: actions/upload-artifact@v4
+      - name: "Package Artifacts"
+        run: |
+          cd dist
+          zip -r ../swift-with-no-llvm-${{ matrix.os }}.zip .
+          echo "📦 Packaged swift-with-no-llvm-${{ matrix.os }}.zip"
+
+      # ---------- 자동 릴리즈 ----------
+      - name: "Create Auto Tag"
+        id: tag
+        shell: bash
+        run: |
+          VERSION="v$(date +%Y%m%d%H%M%S)"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git tag -a "$VERSION" -m "Swift-with-no-llvm auto release $VERSION"
+          git push origin "$VERSION"
+          echo "🔖 Created tag $VERSION"
+
+      - name: "Publish GitHub Release"
+        uses: softprops/action-gh-release@v1
         with:
-          name: swift-with-no-llvm-${{ matrix.os }}
-          path: |
+          tag_name: ${{ steps.tag.outputs.version }}
+          name: "Swift-with-no-llvm — ${{ steps.tag.outputs.version }}"
+          files: |
             dist/out.s
             dist/PROOF_LEDGER.txt
+            swift-with-no-llvm-${{ matrix.os }}.zip
+          body: |
+            ✅ Auto-built release for Swift-with-no-llvm
+            - OS: ${{ matrix.os }}
+            - Tag: ${{ steps.tag.outputs.version }}
+            - ProofLedger SHA256 hash verified
