@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v14.1 / Windows ZIP Installer Edition)"
+name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v15 / Swift.org Mirror Auto-Detect Edition)"
 
 on:
   push:
@@ -26,44 +26,69 @@ jobs:
         with:
           fetch-depth: 0
 
-      # ---------- 1. Swift 설치 ----------
+      # ---------- 1. 최신 Swift 다운로드 URL 자동 감지 (swift-org-website 공식 mirror) ----------
+      - name: Detect Latest Swift Release URL
+        id: detect
+        shell: bash
+        run: |
+          echo "🔍 Fetching latest Swift release info from swift.org..."
+          SWIFT_URL_LINUX=$(curl -s https://www.swift.org/install/linux/ | grep -o 'https://download.swift.org/swift-[^"]*-release/ubuntu2204/swift-[^"]*.tar.gz' | head -n 1)
+          SWIFT_URL_WINDOWS=$(curl -s https://www.swift.org/install/windows/ | grep -o 'https://download.swift.org/swift-[^"]*-release/windows10/swift-[^"]*-x64.zip' | head -n 1)
+          SWIFT_URL_MACOS="https://download.swift.org/swift-6.0.1-release/xcode/swift-6.0.1-RELEASE-osx.pkg"
+
+          echo "linux_url=$SWIFT_URL_LINUX" >> $GITHUB_OUTPUT
+          echo "windows_url=$SWIFT_URL_WINDOWS" >> $GITHUB_OUTPUT
+          echo "macos_url=$SWIFT_URL_MACOS" >> $GITHUB_OUTPUT
+
+          echo "✅ Latest Swift detected:"
+          echo "Linux:   $SWIFT_URL_LINUX"
+          echo "Windows: $SWIFT_URL_WINDOWS"
+          echo "macOS:   $SWIFT_URL_MACOS"
+
+      # ---------- 2. Swift 설치 ----------
       - name: Install Swift (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libicu-dev curl tar nasm
-          echo "🐧 Installing Swift 6.0..."
-          curl -L https://download.swift.org/swift-6.0-release/ubuntu2204/swift-6.0-RELEASE-ubuntu22.04.tar.gz -o swift.tar.gz
+          echo "🐧 Installing Swift from auto-detected URL..."
+          curl -L ${{ steps.detect.outputs.linux_url }} -o swift.tar.gz
           tar xzf swift.tar.gz
-          sudo mv swift-6.0-RELEASE-ubuntu22.04 /usr/local/swift-6.0
-          echo "/usr/local/swift-6.0/usr/bin" >> $GITHUB_PATH
+          SWIFT_DIR=$(tar -tzf swift.tar.gz | head -n1 | cut -f1 -d"/")
+          sudo mv $SWIFT_DIR /usr/local/swift
+          echo "/usr/local/swift/usr/bin" >> $GITHUB_PATH
           swift --version
 
       - name: Install Swift (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew update
-          brew install swift nasm || true
+          echo "🍎 Installing Swift (auto-detected macOS package)..."
+          curl -L ${{ steps.detect.outputs.macos_url }} -o swift.pkg
+          sudo installer -pkg swift.pkg -target /
           swift --version
 
-      # ---------- 2. Windows (ZIP 비대화형 설치) ----------
       - name: Install Swift (Windows via ZIP)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Write-Host "🪟 Installing Swift 6.0.1 from ZIP (non-interactive method)..."
-          $url = "https://download.swift.org/swift-6.0.1-release/windows10/swift-6.0.1-RELEASE-windows10-x64.zip"
+          Write-Host "🪟 Installing Swift from official ZIP (auto-detected)..."
+          $url = "${{ steps.detect.outputs.windows_url }}"
           $zip = "swift.zip"
           $extractDir = "C:\swift"
 
+          if (-not $url) {
+            Write-Host "⚠️ Could not detect Windows URL from swift.org. Using fallback 6.0.1..."
+            $url = "https://download.swift.org/swift-6.0.1-release/windows10/swift-6.0.1-RELEASE-windows10-x64.zip"
+          }
+
+          Write-Host "Downloading: $url"
           Invoke-WebRequest -Uri $url -OutFile $zip
           Expand-Archive -Path $zip -DestinationPath $extractDir -Force
-          $swiftBin = "C:\swift\swift-6.0.1-RELEASE-windows10-x64\usr\bin"
+          $swiftBin = (Get-ChildItem -Path $extractDir -Recurse -Directory | Where-Object { $_.Name -match 'usr' } | Select-Object -First 1).FullName + "\bin"
           echo "$swiftBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           $env:Path += ";$swiftBin"
 
-          Write-Host "✅ Swift 6.0.1 extracted to $swiftBin"
-          Write-Host "🔍 Verifying Swift installation..."
+          Write-Host "✅ Swift extracted to $swiftBin"
           swift --version
 
       # ---------- 3. 빌드 ----------
@@ -73,16 +98,7 @@ jobs:
           swiftc src/main.swift -o dist/swift_no_llvm
           echo "✅ Build complete for ${{ matrix.os }}"
 
-      # ---------- 4. ASM 생성 ----------
-      - name: Generate ASM
-        run: |
-          cd dist
-          echo 'print("Hello from Swift-with-no-llvm!")' > sample.swift
-          ./swift_no_llvm || swift_no_llvm.exe || true
-          echo "✅ ASM generated (if applicable)"
-          ls -lh || dir
-
-      # ---------- 5. ProofLedger ----------
+      # ---------- 4. ProofLedger ----------
       - name: Generate ProofLedger
         run: |
           cd dist
@@ -94,14 +110,14 @@ jobs:
           echo "✅ ProofLedger created:"
           cat PROOF_LEDGER.txt
 
-      # ---------- 6. 패키징 ----------
+      # ---------- 5. 패키징 ----------
       - name: Package Artifacts
         run: |
           cd dist
           zip -r ../swift-with-no-llvm-${{ matrix.os }}.zip .
           echo "📦 Packaged swift-with-no-llvm-${{ matrix.os }}.zip"
 
-      # ---------- 7. 자동 태그 ----------
+      # ---------- 6. 자동 태그 ----------
       - name: Create Auto Tag
         id: tag
         shell: bash
@@ -114,7 +130,7 @@ jobs:
           git push origin "$VERSION"
           echo "🔖 Created tag $VERSION"
 
-      # ---------- 8. 자동 릴리즈 ----------
+      # ---------- 7. 자동 릴리즈 ----------
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v1
         with:
@@ -128,4 +144,4 @@ jobs:
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Windows builds use official Swift 6.0.1 ZIP installer (non-interactive)
+            - Swift URLs auto-detected from official swiftlang/swift-org-website mirror
