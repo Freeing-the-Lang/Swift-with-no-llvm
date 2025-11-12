@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v13 / Windows MSI Installer Edition)"
+name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v13.1 / Swift 6.0.1 for Windows)"
 
 on:
   push:
@@ -46,24 +46,27 @@ jobs:
           brew install swift nasm || true
           swift --version
 
-      # ---------- 2. Windows (MSI Installer 버전) ----------
+      # ---------- 2. Windows (Swift 6.0.1 공식 MSI 설치) ----------
       - name: Install Swift for Windows (MSI)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Write-Host "🪟 Installing Swift 5.10.1 (official Windows MSI)..."
-          $url = "https://download.swift.org/swift-5.10.1-release/windows10/swift-5.10.1-RELEASE-windows10.exe"
-          Invoke-WebRequest -Uri $url -OutFile "swift-installer.exe"
-          Start-Process -FilePath "swift-installer.exe" -ArgumentList "/quiet" -Wait
-          $swiftPath = "C:\Library\Developer\Toolchains\unknown-Asserts-development.xctoolchain\usr\bin"
-          if (Test-Path $swiftPath) {
-            echo "$swiftPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-            $env:Path += ";$swiftPath"
-            Write-Host "✅ Swift installed to $swiftPath"
+          Write-Host "🪟 Installing Swift 6.0.1 (official Windows installer)..."
+          $url = "https://download.swift.org/swift-6.0.1-release/windows10/swift-6.0.1-RELEASE-windows10.exe"
+          $installer = "swift-installer.exe"
+          Invoke-WebRequest -Uri $url -OutFile $installer
+          Start-Process -FilePath $installer -ArgumentList "/quiet" -Wait
+
+          $swiftRoot = "C:\Library\Developer\Toolchains\unknown-Asserts-development.xctoolchain\usr\bin"
+          if (Test-Path $swiftRoot) {
+            echo "$swiftRoot" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            $env:Path += ";$swiftRoot"
+            Write-Host "✅ Swift 6.0.1 installed successfully at $swiftRoot"
           } else {
-            Write-Host "⚠️ Swift install path not found, listing C:\Library:"
+            Write-Host "⚠️ Swift install directory not found. Listing C:\Library:"
             Get-ChildItem -Recurse "C:\Library"
           }
+
           Write-Host "🔍 Verifying Swift installation..."
           swift --version
 
@@ -129,4 +132,4 @@ jobs:
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Windows builds use official Swift 5.10.1 MSI installer (no WSL dependency)
+            - Windows builds use official Swift 6.0.1 MSI installer (no WSL dependency)
