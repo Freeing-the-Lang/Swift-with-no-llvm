@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v6 / WSL Build Edition)"
+name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v7 / WSL Fully Supported)"
 
 on:
   push:
@@ -46,47 +46,54 @@ jobs:
           brew install swift nasm || true
           swift --version
 
+      # ---------- 2. Windows — Swift 설치 및 빌드 (WSL 내부) ----------
       - name: Install & Build Swift inside WSL (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Write-Host "🪟 Installing Swift 6.0 inside WSL Ubuntu..."
-          # 1. WSL Ubuntu 설치 및 준비
+          # 1️⃣  WSL Ubuntu 설치
           wsl --install -d Ubuntu --no-launch
+          Write-Host "⏳ Waiting for WSL to finish initialization..."
+          Start-Sleep -Seconds 25
+          Write-Host "🚀 Launching WSL for the first time..."
+          wsl echo "✅ Ubuntu WSL initialized successfully."
+
+          # 2️⃣  패키지 업데이트 및 기본 도구 설치
           wsl sudo apt-get update
-          wsl sudo apt-get install -y clang libicu-dev curl tar nasm
-          
-          # 2. Swift 다운로드 및 설치 (WSL 내부)
+          wsl sudo apt-get install -y clang libicu-dev curl tar nasm zip unzip
+
+          # 3️⃣  Swift 설치
           wsl bash -c "curl -L https://download.swift.org/swift-6.0-release/ubuntu2204/swift-6.0-RELEASE-ubuntu22.04.tar.gz -o swift.tar.gz"
           wsl bash -c "tar xzf swift.tar.gz && sudo mv swift-6.0-RELEASE-ubuntu22.04 /usr/local/swift-6.0"
           Write-Host "✅ Swift 6.0 installed inside WSL Ubuntu"
 
-          # 3. WSL 내부에서 Swift 버전 확인
+          # 4️⃣  Swift 버전 확인
           wsl bash -c "/usr/local/swift-6.0/usr/bin/swift --version"
 
-          # 4. 빌드 디렉토리 생성 및 빌드 수행
+          # 5️⃣  빌드 수행
           Write-Host "⚙️  Building project inside WSL..."
           wsl bash -c "mkdir -p /mnt/d/a/swiftbuild/dist"
           wsl bash -c "cd /mnt/d/a/swiftbuild && /usr/local/swift-6.0/usr/bin/swiftc /mnt/d/a/_work/${{ github.repository }}/src/main.swift -o dist/swift_no_llvm"
           Write-Host "✅ Build complete inside WSL"
-          
-          # 5. ASM 생성
+
+          # 6️⃣  ASM 생성
           Write-Host "🧩 Generating ASM inside WSL..."
           wsl bash -c "cd /mnt/d/a/swiftbuild/dist && echo 'print(\"Hello from Swift-with-no-llvm!\")' > sample.swift && ./swift_no_llvm && ls -lh"
 
-          # 6. ProofLedger 생성
+          # 7️⃣  ProofLedger 생성
           Write-Host "🧾 Creating ProofLedger..."
           wsl bash -c "cd /mnt/d/a/swiftbuild/dist && sha256sum out.s > PROOF_LEDGER.txt || shasum -a 256 out.s > PROOF_LEDGER.txt && cat PROOF_LEDGER.txt"
 
-          # 7. 패키징
+          # 8️⃣  패키징
           Write-Host "📦 Packaging build artifacts..."
           wsl bash -c "cd /mnt/d/a/swiftbuild/dist && zip -r ../swift-with-no-llvm-windows-wsl.zip ."
 
-          # 8. 산출물 복사
+          # 9️⃣  산출물 복사
           mkdir dist
-          cp D:\a\swiftbuild\swift-with-no-llvm-windows-wsl.zip dist\
+          Copy-Item -Recurse -Force D:\a\swiftbuild\swift-with-no-llvm-windows-wsl.zip dist\
 
-      # ---------- 2. ProofLedger (Linux/macOS 공통) ----------
+      # ---------- 3. ProofLedger (Linux/macOS 공통) ----------
       - name: Generate ProofLedger
         if: runner.os != 'Windows'
         run: |
@@ -95,7 +102,7 @@ jobs:
           echo "✅ ProofLedger created:"
           cat PROOF_LEDGER.txt
 
-      # ---------- 3. 패키징 (Linux/macOS) ----------
+      # ---------- 4. 패키징 (Linux/macOS) ----------
       - name: Package Artifacts
         if: runner.os != 'Windows'
         run: |
@@ -103,7 +110,7 @@ jobs:
           zip -r ../swift-with-no-llvm-${{ matrix.os }}.zip .
           echo "📦 Packaged swift-with-no-llvm-${{ matrix.os }}.zip"
 
-      # ---------- 4. 자동 태그 ----------
+      # ---------- 5. 자동 태그 ----------
       - name: Create Auto Tag
         id: tag
         shell: bash
@@ -116,7 +123,7 @@ jobs:
           git push origin "$VERSION"
           echo "🔖 Created tag $VERSION"
 
-      # ---------- 5. 자동 릴리즈 ----------
+      # ---------- 6. 자동 릴리즈 ----------
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v1
         with:
@@ -130,4 +137,4 @@ jobs:
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Windows builds executed inside WSL Ubuntu for full Swift support
+            - Windows builds executed inside WSL Ubuntu for full Swift compatibility
