@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Stable Windows Fallback)"
+name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Windows Fix v2)"
 
 on:
   push:
@@ -44,15 +44,15 @@ jobs:
           brew install swift || true
           swift --version
 
-      - name: "Install Swift (Windows fallback)"
+      - name: "Install Swift (Windows fixed URL)"
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Write-Host "🪟 Installing Swift 5.10.1 for Windows (fallback)..."
-          $url = "https://download.swift.org/swift-5.10.1-release/windows10/swift-5.10.1-RELEASE-windows10.exe"
+          Write-Host "🪟 Installing Swift 5.10.1 for Windows (fixed URL)..."
+          $url = "https://download.swift.org/swift-5.10.1-release/windows10-x64/swift-5.10.1-RELEASE-windows10-x64.exe"
           Invoke-WebRequest -Uri $url -OutFile swift-installer.exe
           Start-Process -FilePath .\swift-installer.exe -ArgumentList "/quiet" -Wait
-          Write-Host "✅ Swift 5.10.1 installed"
+          Write-Host "✅ Swift 5.10.1 installed successfully"
           swift --version
 
       # ---------- 빌드 ----------
@@ -118,4 +118,4 @@ jobs:
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Windows uses Swift 5.10.1 fallback (until 6.0 release)
+            - Windows uses Swift 5.10.1 (latest available)
