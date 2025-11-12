@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v9 / Fast WSL Fixed Paths Edition)"
+name: "Swift-with-no-llvm — Full 3OS Build & Auto Release (Final Stable v10 / Fully Resolved WSL Edition)"
 
 on:
   push:
@@ -46,7 +46,7 @@ jobs:
           brew install swift nasm || true
           swift --version
 
-      # ---------- 2. Windows — Swift 설치 및 빌드 (WSL 최종판) ----------
+      # ---------- 2. Windows (WSL 빌드) ----------
       - name: Install & Build Swift inside Preinstalled WSL (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -66,32 +66,32 @@ jobs:
           # 3️⃣ Swift 설치
           wsl bash -c "curl -L https://download.swift.org/swift-6.0-release/ubuntu2204/swift-6.0-RELEASE-ubuntu22.04.tar.gz -o swift.tar.gz"
           wsl bash -c "tar xzf swift.tar.gz && sudo mv swift-6.0-RELEASE-ubuntu22.04 /usr/local/swift-6.0"
-          Write-Host "✅ Swift 6.0 installed in WSL Ubuntu"
           wsl bash -c "/usr/local/swift-6.0/usr/bin/swift --version"
+          Write-Host "✅ Swift 6.0 installed in WSL Ubuntu"
 
           # 4️⃣ 빌드
-          Write-Host "⚙️  Building project inside WSL..."
+          $repoPath = "D:\\a\\_work\\${{ github.repository }}"
+          $distPath = Join-Path $repoPath "dist"
+          Write-Host "⚙️ Building in WSL → $distPath"
           wsl bash -c "mkdir -p /mnt/d/a/_work/${{ github.repository }}/dist"
           wsl bash -c "cd /mnt/d/a/_work/${{ github.repository }} && /usr/local/swift-6.0/usr/bin/swiftc src/main.swift -o dist/swift_no_llvm"
           Write-Host "✅ Build complete inside WSL"
 
-          # 5️⃣ ASM 생성 및 ProofLedger
+          # 5️⃣ ProofLedger + ZIP
           wsl bash -c "cd /mnt/d/a/_work/${{ github.repository }}/dist && echo 'print(\"Hello from Swift-with-no-llvm!\")' > sample.swift && ./swift_no_llvm"
           wsl bash -c "cd /mnt/d/a/_work/${{ github.repository }}/dist && sha256sum out.s > PROOF_LEDGER.txt || shasum -a 256 out.s > PROOF_LEDGER.txt && cat PROOF_LEDGER.txt"
-
-          # 6️⃣ 패키징 (WSL 내부 ZIP)
           wsl bash -c "cd /mnt/d/a/_work/${{ github.repository }}/dist && zip -r swift-with-no-llvm-windows-wsl.zip ."
           Write-Host "📦 Packaging done inside WSL"
 
-          # 7️⃣ 결과 복사 (PowerShell)
+          # 6️⃣ ZIP 복사
           mkdir dist
-          $zipPath = "D:\\a\\_work\\${{ github.repository }}\\dist\\swift-with-no-llvm-windows-wsl.zip"
-          if (Test-Path $zipPath) {
-            Copy-Item -Path $zipPath -Destination "dist\\" -Force
-            Write-Host "✅ Artifact copied successfully."
+          $zipFile = Join-Path $distPath "swift-with-no-llvm-windows-wsl.zip"
+          if (Test-Path $zipFile) {
+            Copy-Item $zipFile dist\ -Force
+            Write-Host "✅ Artifact copied successfully: $zipFile"
           } else {
-            Write-Host "⚠️ ZIP file not found at $zipPath. Listing dist contents for debugging:"
-            Get-ChildItem -Recurse "D:\\a\\_work\\${{ github.repository }}\\dist"
+            Write-Host "⚠️ ZIP not found → listing dist folder contents:"
+            Get-ChildItem -Recurse $distPath
             exit 1
           }
 
@@ -139,4 +139,4 @@ jobs:
             - OS: ${{ matrix.os }}
             - Tag: ${{ steps.tag.outputs.version }}
             - ProofLedger SHA256 verified
-            - Windows builds executed inside preinstalled WSL Ubuntu (fast mode, fixed paths)
+            - Windows builds executed inside preinstalled WSL Ubuntu (fully resolved paths)
