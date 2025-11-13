@@ -1,16 +1,23 @@
-#include <iostream>
-#include <fstream>
 #include "parser.hpp"
 #include "codegen.hpp"
+#include <fstream>
+#include <sstream>
 
 int main() {
-    std::ifstream in("swift_sample.swift");
-    std::string code((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::ifstream f("src/main.swift");
+    if (!f.is_open()) {
+        std::cerr << "main.swift not found\n";
+        return 1;
+    }
 
-    auto ast = parseSwift(code);
-    generateCPP(ast, "out.cpp");
+    std::stringstream ss;
+    ss << f.rdbuf();
 
-    system("g++ -S -masm=intel out.cpp -o out.asm");
-    std::cout << "✅ Generated out.cpp and out.asm\n";
+    Parser parser(ss.str());
+    auto program = parser.parseProgram();
+
+    Evaluator eval;
+    eval.run(program);
+
     return 0;
 }
