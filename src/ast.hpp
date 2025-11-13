@@ -1,46 +1,32 @@
 #pragma once
-#include <string>
-#include <vector>
 #include <memory>
-#include <variant>
+#include <vector>
+#include <string>
 
-struct Expr;
-struct Stmt;
-
-using ExprPtr = std::shared_ptr<Expr>;
-using StmtPtr = std::shared_ptr<Stmt>;
-
+// ===== Base Types =====
 struct Expr {
-    struct Number   { double value; };
-    struct String   { std::string value; };
-    struct Boolean  { bool value; };
-    struct Variable { std::string name; };
-    struct Binary   {
-        std::string op;
-        ExprPtr left;
-        ExprPtr right;
-    };
-
-    std::variant<
-        Number,
-        String,
-        Boolean,
-        Variable,
-        Binary
-    > value;
+    virtual ~Expr() = default;
 };
 
 struct Stmt {
-    struct Let {
-        std::string name;
-        ExprPtr value;
-    };
-    struct Print {
-        ExprPtr value;
-    };
+    virtual ~Stmt() = default;
+};
 
-    std::variant<
-        Let,
-        Print
-    > value;
+// ===== Expr Types =====
+
+struct NumberExpr : public Expr {
+    double value;
+    NumberExpr(double v) : value(v) {}
+};
+
+struct PrintExpr : public Expr {
+    std::shared_ptr<Expr> value;
+    PrintExpr(std::shared_ptr<Expr> v) : value(v) {}
+};
+
+// ===== Stmt Types =====
+
+struct ExprStmt : public Stmt {
+    std::shared_ptr<Expr> expr;
+    ExprStmt(std::shared_ptr<Expr> e) : expr(e) {}
 };
