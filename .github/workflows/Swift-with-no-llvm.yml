@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — v23.0 PURE g++ (3OS Stable Pipeline)"
+name: "Swift-with-no-llvm — v23.1 PURE g++ (3OS Stable Pipeline)"
 
 on:
   push:
@@ -20,75 +20,62 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      # ------------------------------------------------------------
+      # -------------------------------------------------------------------
       # 0) Checkout
-      # ------------------------------------------------------------
+      # -------------------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------------
-      # 1) Install Tools (No LLVM anywhere)
-      # ------------------------------------------------------------
+      # -------------------------------------------------------------------
+      # 1) Install Tools (No LLVM anywhere, No Chocolatey)
+      # -------------------------------------------------------------------
       - name: Install Tools (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -y
           sudo apt-get install -y g++ clang nasm zip
 
-      - name: Install Tools (macOS, PURE g++)
+      - name: Install Tools (macOS)
         if: runner.os == 'macOS'
         run: |
           brew install nasm || true
           echo "Using native macOS clang++/g++"
-          clang++ --version
 
       - name: Install Tools (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # Windows 에서는 LLVM 설치 없이 기본 clang++ 사용 가능
-          choco install zip -y
-          Write-Host "Using Windows clang++ bundled in runner."
+          Write-Host "Using built-in Windows compiler and ZIP support."
+          clang++ --version
 
-      # ------------------------------------------------------------
-      # 2) Build Transpiler (C++)
-      # ------------------------------------------------------------
+      # -------------------------------------------------------------------
+      # 2) Build Transpiler
+      # -------------------------------------------------------------------
       - name: Build Transpiler (C++)
         shell: bash
         run: |
           mkdir -p build dist
-
           echo "Compiling Swift Transpiler (PURE g++)"
 
           if [ "$RUNNER_OS" = "Windows" ]; then
             clang++ -std=c++17 \
-              src/main.cpp \
-              src/parser.cpp \
-              src/ast.cpp \
-              src/codegen.cpp \
-              src/evaluator.cpp \
+              src/main.cpp src/parser.cpp src/ast.cpp \
+              src/codegen.cpp src/evaluator.cpp \
               -o build/swift_transpiler.exe
           else
-            # macOS + Linux: PURE g++ / clang++ auto
             g++ -std=c++17 \
-              src/main.cpp \
-              src/parser.cpp \
-              src/ast.cpp \
-              src/codegen.cpp \
-              src/evaluator.cpp \
+              src/main.cpp src/parser.cpp src/ast.cpp \
+              src/codegen.cpp src/evaluator.cpp \
               -o build/swift_transpiler || \
             clang++ -std=c++17 \
-              src/main.cpp \
-              src/parser.cpp \
-              src/ast.cpp \
-              src/codegen.cpp \
-              src/evaluator.cpp \
+              src/main.cpp src/parser.cpp src/ast.cpp \
+              src/codegen.cpp src/evaluator.cpp \
               -o build/swift_transpiler
           fi
 
-      # ------------------------------------------------------------
+      # -------------------------------------------------------------------
       # 3) Swift → C++ (Generate out.cpp)
-      # ------------------------------------------------------------
+      # -------------------------------------------------------------------
       - name: Run Swift → C++ Transpiler
         shell: bash
         run: |
@@ -99,20 +86,21 @@ jobs:
             ./build/swift_transpiler
           fi
 
-      # ------------------------------------------------------------
+      # -------------------------------------------------------------------
       # 4) Patch out.cpp
-      # ------------------------------------------------------------
+      # -------------------------------------------------------------------
       - name: Patch C++ Output
         shell: bash
         run: |
+          echo "Patching C++ output..."
           if ! grep -q "int main" out.cpp; then
             sed -i '1i #include <iostream>\nusing namespace std;\nint main(){' out.cpp || true
             echo "}" >> out.cpp
           fi
 
-      # ------------------------------------------------------------
-      # 5) Generate ASM (PURE g++)
-      # ------------------------------------------------------------
+      # -------------------------------------------------------------------
+      # 5) Generate ASM
+      # -------------------------------------------------------------------
       - name: Generate ASM (PURE g++)
         shell: bash
         run: |
@@ -120,41 +108,34 @@ jobs:
           g++ -S -masm=intel out.cpp -o out.asm || \
           clang++ -S -masm=intel out.cpp -o out.asm
 
-      # ------------------------------------------------------------
-      # 6) Build Executable (PURE g++)
-      # ------------------------------------------------------------
+      # -------------------------------------------------------------------
+      # 6) Build Executable
+      # -------------------------------------------------------------------
       - name: Build Executable
         shell: bash
         run: |
           mkdir -p dist
-
           if [ "$RUNNER_OS" = "Windows" ]; then
             clang++ out.cpp -o dist/out.exe
           else
             g++ out.cpp -o dist/out || clang++ out.cpp -o dist/out
           fi
 
-      # ------------------------------------------------------------
+      # -------------------------------------------------------------------
       # 7) ProofLedger
-      # ------------------------------------------------------------
+      # -------------------------------------------------------------------
       - name: Generate ProofLedger
         shell: bash
         run: |
           mkdir -p dist
           echo "🧾 Generating ProofLedger..."
+          (sha256sum out.cpp || shasum -a 256 out.cpp) > dist/PROOF_LEDGER.txt
+          (sha256sum out.asm || shasum -a 256 out.asm) >> dist/PROOF_LEDGER.txt
+          (sha256sum dist/out* || shasum -a 256 dist/out*) >> dist/PROOF_LEDGER.txt 2>/dev/null || true
 
-          HASH="sha256sum"
-          if ! command -v sha256sum >/dev/null 2>&1; then
-            HASH="shasum -a 256"
-          fi
-
-          $HASH out.cpp > dist/PROOF_LEDGER.txt
-          $HASH out.asm >> dist/PROOF_LEDGER.txt
-          $HASH dist/out* >> dist/PROOF_LEDGER.txt || true
-
-      # ------------------------------------------------------------
-      # 8) Package
-      # ------------------------------------------------------------
+      # -------------------------------------------------------------------
+      # 8) Package Artifacts
+      # -------------------------------------------------------------------
       - name: Package Artifacts
         shell: bash
         run: |
@@ -164,9 +145,9 @@ jobs:
             zip -r swift-no-llvm-${{ matrix.os }}.zip dist
           fi
 
-      # ------------------------------------------------------------
-      # 9) Tag
-      # ------------------------------------------------------------
+      # -------------------------------------------------------------------
+      # 9) Auto Tag
+      # -------------------------------------------------------------------
       - name: Auto Tag
         id: tag
         shell: bash
@@ -178,9 +159,9 @@ jobs:
           git tag -a "$VER" -m "Swift-no-LLVM PURE g++ Release $VER"
           git push origin "$VER"
 
-      # ------------------------------------------------------------
-      # 🔟 Release
-      # ------------------------------------------------------------
+      # -------------------------------------------------------------------
+      # 10) Release
+      # -------------------------------------------------------------------
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
