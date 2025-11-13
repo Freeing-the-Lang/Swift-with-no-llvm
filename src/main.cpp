@@ -2,22 +2,28 @@
 #include "codegen.hpp"
 #include <fstream>
 #include <sstream>
+#include <iostream>
 
 int main() {
     std::ifstream f("src/main.swift");
     if (!f.is_open()) {
-        std::cerr << "main.swift not found\n";
+        std::cerr << "src/main.swift not found\n";
         return 1;
     }
 
     std::stringstream ss;
     ss << f.rdbuf();
 
-    Parser parser(ss.str());
-    auto program = parser.parseProgram();
+    Parser p(ss.str());
+    auto program = p.parseProgram();
 
-    Evaluator eval;
-    eval.run(program);
+    CodeGen cg;
+    std::string cpp = cg.generate(program);
 
+    std::ofstream out("out.cpp");
+    out << cpp;
+    out.close();
+
+    std::cout << "Generated out.cpp\n";
     return 0;
 }
