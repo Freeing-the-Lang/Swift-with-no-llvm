@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 #include <memory>
-
+#include "ast.hpp"
 #include "parser.hpp"
 #include "codegen.hpp"
 #include "evaluator.hpp"
