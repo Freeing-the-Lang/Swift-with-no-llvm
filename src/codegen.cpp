@@ -1,48 +1,26 @@
 #include "codegen.hpp"
 #include <sstream>
 
-std::string CodeGen::generate(const std::vector<StmtPtr>& prog) {
-    std::stringstream out;
+std::string CodeGen::generate(const std::vector<StmtPtr>& stmts) {
+    std::ostringstream out;
 
-    out << "#include <iostream>\n";
-    out << "#include <string>\n";
-    out << "using namespace std;\n\n";
-    out << "int main() {\n";
+    out << "#include <iostream>\nusing namespace std;\nint main(){\n";
 
-    for (auto &st : prog) {
-        if (std::holds_alternative<Stmt::Let>(st->value)) {
-            auto& v = std::get<Stmt::Let>(st->value);
-            out << "    auto " << v.name << " = " << genExpr(v.value) << ";\n";
-        }
-        else if (std::holds_alternative<Stmt::Print>(st->value)) {
-            auto& v = std::get<Stmt::Print>(st->value);
-            out << "    cout << " << genExpr(v.value) << " << endl;\n";
+    for (auto& s : stmts) {
+        if (auto es = std::dynamic_pointer_cast<ExprStmt>(s)) {
+            if (auto p = std::dynamic_pointer_cast<PrintExpr>(es->expr)) {
+                out << "    cout << " << genExpr(p->value) << " << endl;\n";
+            }
         }
     }
 
-    out << "    return 0;\n";
-    out << "}\n\n";
-
+    out << "    return 0;\n}\n";
     return out.str();
 }
 
 std::string CodeGen::genExpr(const ExprPtr& e) {
-    if (std::holds_alternative<Expr::Number>(e->value))
-        return std::to_string(std::get<Expr::Number>(e->value).value);
-
-    if (std::holds_alternative<Expr::String>(e->value))
-        return "\"" + std::get<Expr::String>(e->value).value + "\"";
-
-    if (std::holds_alternative<Expr::Boolean>(e->value))
-        return std::get<Expr::Boolean>(e->value).value ? "true" : "false";
-
-    if (std::holds_alternative<Expr::Variable>(e->value))
-        return std::get<Expr::Variable>(e->value).name;
-
-    if (std::holds_alternative<Expr::Binary>(e->value)) {
-        auto& b = std::get<Expr::Binary>(e->value);
-        return "(" + genExpr(b.left) + " " + b.op + " " + genExpr(b.right) + ")";
+    if (auto n = std::dynamic_pointer_cast<NumberExpr>(e)) {
+        return std::to_string(n->value);
     }
-
-    return "";
+    return "0";
 }
