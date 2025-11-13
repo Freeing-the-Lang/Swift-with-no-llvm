@@ -1,14 +1,12 @@
 #pragma once
 #include "ast.hpp"
-#include <unordered_map>
-#include <iostream>
+#include <string>
+#include <vector>
 
-class Evaluator {
+class CodeGen {
 public:
-    std::unordered_map<std::string, std::variant<double, std::string, bool>> env;
-
-    void run(const std::vector<StmtPtr>& program);
+    std::string generate(const std::vector<StmtPtr>& prog);
 
 private:
-    std::variant<double, std::string, bool> evalExpr(const ExprPtr& e);
+    std::string genExpr(const ExprPtr& e);
 };
