@@ -1,3 +1,4 @@
+#include "ast.hpp"
 #include "codegen.hpp"
 #include <sstream>
 
