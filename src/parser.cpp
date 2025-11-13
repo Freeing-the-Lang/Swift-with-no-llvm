@@ -1,3 +1,4 @@
+#include "ast.hpp"
 #include "parser.hpp"
 #include <sstream>
 
