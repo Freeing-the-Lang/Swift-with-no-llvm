@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — v21.5 (3OS C++ Re-Interpreter / Stable Build Edition)"
+name: "Swift-with-no-llvm — v21.6 (3OS C++ Re-Interpreter / Stable Build Edition)"
 
 on:
   push:
@@ -20,18 +20,17 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      # ---------- 0) Checkout ----------
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ---------- 1) Setup Tools: Ubuntu ----------
+      # ---------- Linux ----------
       - name: Setup Build Tools (Ubuntu)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -y
           sudo apt-get install -y g++ clang nasm python3 make
 
-      # ---------- 2) Setup Tools: macOS ----------
+      # ---------- macOS ----------
       - name: Setup Build Tools (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -41,8 +40,7 @@ jobs:
           echo "export PATH=\"/opt/homebrew/opt/llvm/bin:$PATH\"" >> ~/.bash_profile
           source ~/.bash_profile || true
 
-      # ---------- 3) Setup Tools: Windows ----------
-      # NASM 제거됨 (문제 원인)
+      # ---------- Windows ----------
       - name: Setup Build Tools (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -50,27 +48,34 @@ jobs:
           Write-Host "Installing LLVM..."
           choco install llvm -y --no-progress
 
-          Write-Host "Adding LLVM to PATH..."
+          Write-Host "Adding LLVM to PATH via GITHUB_PATH"
           "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
-          Write-Host "Windows LLVM setup complete."
+          Write-Host "Windows toolchain OK (NASM not required)."
 
-      # ---------- 4) Build Interpreter ----------
+      # ---------- Build ----------
       - name: Compile Re-Interpreter
         shell: bash
         run: |
           mkdir -p build dist
+
           if [ "$RUNNER_OS" = "Windows" ]; then
-            clang++ -std=c++17 src/main.cpp -o build/swift_reinterpreter.exe
+            echo "🔨 Building on Windows (clang++)..."
+            clang++ -std=c++17 \
+              src/main.cpp src/parser.cpp src/codegen.cpp \
+              -o build/swift_reinterpreter.exe
           else
-            g++ -std=c++17 src/main.cpp -o build/swift_reinterpreter
+            echo "🔨 Building on Linux/macOS (g++)..."
+            g++ -std=c++17 \
+              src/main.cpp src/parser.cpp src/codegen.cpp \
+              -o build/swift_reinterpreter
           fi
 
-      # ---------- 5) Run Interpreter ----------
+      # ---------- Execute ----------
       - name: Run Swift → C++ → ASM
         shell: bash
         run: |
-          echo "🧩 Running Swift Re-Interpreter..."
+          echo "🧩 Running interpreter..."
           if [ "$RUNNER_OS" = "Windows" ]; then
             ./build/swift_reinterpreter.exe || true
           else
@@ -78,20 +83,19 @@ jobs:
           fi
           ls -R .
 
-      # ---------- 6) C++ Safety Patch ----------
+      # ---------- Safety Patch ----------
       - name: Fix malformed C++ (Safety Patch)
         shell: bash
         run: |
           if [ -f out.cpp ]; then
             if grep -q "return 0;" out.cpp && ! grep -q "int main" out.cpp; then
-              echo "⚙️ Fixing missing main()..."
               sed -i '1i #include <iostream>\nusing namespace std;\nint main(){' out.cpp || true
               echo "}" >> out.cpp
             fi
           fi
           head -n 20 out.cpp || true
 
-      # ---------- 7) Generate ProofLedger ----------
+      # ---------- ProofLedger ----------
       - name: Generate ProofLedger
         shell: bash
         run: |
@@ -113,10 +117,10 @@ jobs:
           sha256sum out.asm >> dist/PROOF_LEDGER.txt 2>/dev/null || \
           shasum -a 256 out.asm >> dist/PROOF_LEDGER.txt
 
-          echo "🔥 ProofLedger:"
+          echo "🔥 ProofLedger created:"
           cat dist/PROOF_LEDGER.txt
 
-      # ---------- 8) Package ----------
+      # ---------- Package ----------
       - name: Package Artifacts
         shell: bash
         run: |
@@ -130,7 +134,7 @@ jobs:
             zip -r swift-reinterpreter-${{ matrix.os }}.zip dist
           fi
 
-      # ---------- 9) Auto Tag ----------
+      # ---------- Tag ----------
       - name: Create Auto Tag
         id: tag
         shell: bash
@@ -141,9 +145,8 @@ jobs:
           git config user.email "actions@github.com"
           git tag -a "$VER" -m "Swift-with-no-llvm auto release $VER"
           git push origin "$VER"
-          echo "🔖 Tag created: $VER"
 
-      # ---------- 10) Release ----------
+      # ---------- Release ----------
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v1
         with:
@@ -153,11 +156,11 @@ jobs:
             dist/**/*.zip
             dist/**/*.txt
           body: |
-            🚀 Swift-with-no-llvm v21.5
+            🚀 Swift-with-no-llvm v21.6
             OS: ${{ matrix.os }}
             Tag: ${{ steps.tag.outputs.version }}
             Includes:
               • Swift → C++ → ASM
-              • Auto-main patcher
+              • Auto-main fallback patcher
               • ProofLedger SHA256
-              • 3OS Total Support (Ubuntu / macOS / Windows)
+              • 3OS Total Support
