@@ -1,5 +1,7 @@
 #include "parser.hpp"
+#include <cctype>
 #include <sstream>
+#include <stdexcept>
 
 Parser::Parser(const std::string &src) : pos(0) {
     tokenize(src);
@@ -7,26 +9,30 @@ Parser::Parser(const std::string &src) : pos(0) {
 
 void Parser::tokenize(const std::string &src) {
     int i = 0;
-    while (i < src.size()) {
+    while (i < (int)src.size()) {
         char c = src[i];
 
         if (isspace(c)) { i++; continue; }
 
         if (isdigit(c)) {
             int start = i;
-            while (i < src.size() && (isdigit(src[i]) || src[i] == '.')) i++;
-            tokens.push_back({NUMBER, src.substr(start, i - start)});
+            while (i < (int)src.size() && (isdigit(src[i]) || src[i] == '.'))
+                i++;
+            tokens.push_back({NUMBER, src.substr(start, i-start)});
             continue;
         }
 
         if (isalpha(c)) {
             int start = i;
-            while (i < src.size() && (isalnum(src[i]) || src[i] == '_')) i++;
-            std::string word = src.substr(start, i - start);
+            while (i < (int)src.size() &&
+                   (isalnum(src[i]) || src[i] == '_'))
+                i++;
 
-            if (word == "let")    tokens.push_back({LET, word});
+            std::string word = src.substr(start, i-start);
+
+            if (word == "let") tokens.push_back({LET, word});
             else if (word == "print") tokens.push_back({PRINT, word});
-            else if (word == "true")  tokens.push_back({TRUE, word});
+            else if (word == "true") tokens.push_back({TRUE, word});
             else if (word == "false") tokens.push_back({FALSE, word});
             else tokens.push_back({IDENT, word});
             continue;
@@ -35,10 +41,10 @@ void Parser::tokenize(const std::string &src) {
         if (c == '"') {
             i++;
             int start = i;
-            while (i < src.size() && src[i] != '"') i++;
-            std::string str = src.substr(start, i - start);
+            while (i < (int)src.size() && src[i] != '"') i++;
+            std::string s = src.substr(start, i - start);
             i++;
-            tokens.push_back({STRING, str});
+            tokens.push_back({STRING, s});
             continue;
         }
 
@@ -46,10 +52,11 @@ void Parser::tokenize(const std::string &src) {
             case '=': tokens.push_back({EQUAL, "="}); break;
             case '(': tokens.push_back({LPAREN, "("}); break;
             case ')': tokens.push_back({RPAREN, ")"}); break;
-            case ';': tokens.push_back({SEMI, ";"}); break;
+            case ';': tokens.push_back({SEMI,  ";"}); break;
             default:
-                tokens.push_back({OP, std::string(1, c)});
+                tokens.push_back({OP, std::string(1,c)});
         }
+
         i++;
     }
 
@@ -68,7 +75,7 @@ std::vector<StmtPtr> Parser::parseProgram() {
     std::vector<StmtPtr> stmts;
     while (peek().type != END) {
         stmts.push_back(parseStatement());
-        match(SEMI); // optional
+        match(SEMI);
     }
     return stmts;
 }
@@ -80,22 +87,24 @@ StmtPtr Parser::parseStatement() {
 }
 
 StmtPtr Parser::parseLet() {
-    Token nameTok = get();
-    if (nameTok.type != IDENT) throw std::runtime_error("Expected identifier");
+    Token name = get();
+    if (name.type != IDENT)
+        throw std::runtime_error("Expected identifier after let");
 
-    if (!match(EQUAL)) throw std::runtime_error("Expected '='");
+    if (!match(EQUAL))
+        throw std::runtime_error("Expected '=' after ident");
 
-    ExprPtr value = parseExpr();
+    ExprPtr v = parseExpr();
 
     auto st = std::make_shared<Stmt>();
-    st->value = Stmt::Let{nameTok.text, value};
+    st->value = Stmt::Let{name.text, v};
     return st;
 }
 
 StmtPtr Parser::parsePrint() {
-    ExprPtr value = parseExpr();
+    ExprPtr v = parseExpr();
     auto st = std::make_shared<Stmt>();
-    st->value = Stmt::Print{value};
+    st->value = Stmt::Print{v};
     return st;
 }
 
@@ -103,13 +112,16 @@ ExprPtr Parser::parseExpr() {
     ExprPtr left = parseTerm();
 
     while (peek().type == OP &&
-          (peek().text == "+" || peek().text == "-")) {
+          (peek().text == "+" || peek().text == "-"))
+    {
         std::string op = get().text;
         ExprPtr right = parseTerm();
+
         auto e = std::make_shared<Expr>();
         e->value = Expr::Binary{op, left, right};
         left = e;
     }
+
     return left;
 }
 
@@ -117,13 +129,16 @@ ExprPtr Parser::parseTerm() {
     ExprPtr left = parseFactor();
 
     while (peek().type == OP &&
-          (peek().text == "*" || peek().text == "/")) {
+          (peek().text == "*" || peek().text == "/"))
+    {
         std::string op = get().text;
         ExprPtr right = parseFactor();
+
         auto e = std::make_shared<Expr>();
         e->value = Expr::Binary{op, left, right};
         left = e;
     }
+
     return left;
 }
 
@@ -155,9 +170,9 @@ ExprPtr Parser::parseFactor() {
     }
 
     if (t.type == LPAREN) {
-        ExprPtr e = parseExpr();
+        ExprPtr inside = parseExpr();
         if (!match(RPAREN)) throw std::runtime_error("Expected ')'");
-        return e;
+        return inside;
     }
 
     throw std::runtime_error("Unexpected token in factor");
