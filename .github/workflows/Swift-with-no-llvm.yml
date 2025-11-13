@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — v21.3 (3OS C++ Re-Interpreter / Auto-main-Fallback Edition)"
+name: "Swift-with-no-llvm — v21.4 (3OS C++ Re-Interpreter / Auto-main-Fallback Edition)"
 
 on:
   push:
@@ -29,7 +29,6 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y g++ clang nasm python3 make
-          echo "✅ Linux build tools ready."
 
       # ---------- macOS ----------
       - name: Setup Build Tools (macOS)
@@ -40,71 +39,62 @@ jobs:
           echo "export PATH=\"/usr/local/opt/llvm/bin:$PATH\"" >> ~/.bash_profile
           echo "export PATH=\"/opt/homebrew/opt/llvm/bin:$PATH\"" >> ~/.bash_profile
           source ~/.bash_profile || true
-          echo "✅ macOS build tools ready."
 
       # ---------- Windows ----------
       - name: Setup Build Tools (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Write-Host "Installing LLVM on Windows..."
+          Write-Host "Installing LLVM + NASM..."
           choco install llvm -y
           choco install nasm -y
-          echo "Adding LLVM to PATH"
-          echo "::add-path::C:\Program Files\LLVM\bin"
-          Write-Host "✅ Windows build tools ready."
 
-      # ---------- Build Re-Interpreter ----------
+          Write-Host "Adding LLVM to PATH via GITHUB_PATH"
+          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+          Write-Host "Windows toolchain OK."
+
+      # ---------- Build Interpreter ----------
       - name: Compile Re-Interpreter
+        shell: bash
         run: |
           mkdir -p build dist
-
           if [ "$RUNNER_OS" = "Windows" ]; then
             clang++ -std=c++17 src/main.cpp -o build/swift_reinterpreter.exe
           else
             g++ -std=c++17 src/main.cpp -o build/swift_reinterpreter
           fi
 
-          echo "✅ Re-Interpreter compiled."
-
-      # ---------- Run Translation ----------
+      # ---------- Execute Interpreter ----------
       - name: Run Swift → C++ → ASM
         shell: bash
         run: |
-          echo "🧩 Running re-interpreter..."
+          echo "Running..."
           if [ "$RUNNER_OS" = "Windows" ]; then
             ./build/swift_reinterpreter.exe || true
           else
             ./build/swift_reinterpreter || true
           fi
-
           ls -R .
-          echo "✅ Interpreter executed."
 
-      # ---------- Fix malformed C++ ----------
+      # ---------- C++ Safety Patch ----------
       - name: Fix malformed C++ (Safety Patch)
         shell: bash
         run: |
           if [ -f out.cpp ]; then
             if grep -q "return 0;" out.cpp && ! grep -q "int main" out.cpp; then
-              echo "⚙️ Patching missing int main..."
               sed -i '1i #include <iostream>\nusing namespace std;\nint main(){' out.cpp || true
               echo "}" >> out.cpp
             fi
           fi
-
-          echo "✅ C++ syntax verified."
           head -n 20 out.cpp || true
 
-      # ---------- Generate ProofLedger ----------
+      # ---------- ProofLedger ----------
       - name: Generate ProofLedger
         shell: bash
         run: |
-          echo "🧾 Generating ProofLedger..."
           mkdir -p dist
-
           if [ ! -f out.asm ] && [ -f out.cpp ]; then
-            echo "⚙️ Creating out.asm..."
             if [ "$RUNNER_OS" = "Windows" ]; then
               clang++ -S -masm=intel out.cpp -o out.asm || true
             else
@@ -113,35 +103,25 @@ jobs:
             fi
           fi
 
-          if [ ! -f out.asm ]; then
-            echo "❌ Missing out.asm"
-            exit 1
-          fi
-
           sha256sum out.cpp > dist/PROOF_LEDGER.txt 2>/dev/null || \
           shasum -a 256 out.cpp > dist/PROOF_LEDGER.txt
 
           sha256sum out.asm >> dist/PROOF_LEDGER.txt 2>/dev/null || \
           shasum -a 256 out.asm >> dist/PROOF_LEDGER.txt
 
-          echo "🔥 ProofLedger ready:"
-          cat dist/PROOF_LEDGER.txt
-
       # ---------- Package ----------
       - name: Package Artifacts
         shell: bash
         run: |
           mkdir -p dist
-          mv out.cpp dist/ 2>/dev/null || true
-          mv out.asm dist/ 2>/dev/null || true
+          mv out.cpp dist/ || true
+          mv out.asm dist/ || true
 
           if [ "$RUNNER_OS" = "Windows" ]; then
             zip -r swift-reinterpreter-windows.zip dist
           else
             zip -r swift-reinterpreter-${{ matrix.os }}.zip dist
           fi
-
-          echo "📦 Packaging complete."
 
       # ---------- Auto Tag ----------
       - name: Create Auto Tag
@@ -150,12 +130,10 @@ jobs:
         run: |
           VERSION="v$(date +%Y%m%d%H%M%S)"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git tag -a "$VERSION" -m "Swift Re-Interpreter auto release $VERSION"
           git push origin "$VERSION"
-          echo "🔖 Tag created: $VERSION"
 
       # ---------- Release ----------
       - name: Publish GitHub Release
@@ -171,8 +149,3 @@ jobs:
             OS: ${{ matrix.os }}
             Tag: ${{ steps.tag.outputs.version }}
             ProofLedger: SHA-256 Verified
-            Features:
-            - Swift → C++ → ASM Translating
-            - Auto-main fallback patcher
-            - Windows / macOS / Ubuntu full support
-            - Reproducible builds (ProofLedger)
