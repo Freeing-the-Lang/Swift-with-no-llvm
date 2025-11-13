@@ -3,7 +3,7 @@
 #include <vector>
 #include <string>
 
-// ===== Base Types =====
+// 기본 인터페이스
 struct Expr {
     virtual ~Expr() = default;
 };
@@ -12,7 +12,11 @@ struct Stmt {
     virtual ~Stmt() = default;
 };
 
-// ===== Expr Types =====
+// 스마트 포인터 alias
+using ExprPtr = std::shared_ptr<Expr>;
+using StmtPtr = std::shared_ptr<Stmt>;
+
+// ===== Expression Types =====
 
 struct NumberExpr : public Expr {
     double value;
@@ -20,13 +24,13 @@ struct NumberExpr : public Expr {
 };
 
 struct PrintExpr : public Expr {
-    std::shared_ptr<Expr> value;
-    PrintExpr(std::shared_ptr<Expr> v) : value(v) {}
+    ExprPtr value;
+    PrintExpr(ExprPtr v) : value(v) {}
 };
 
-// ===== Stmt Types =====
+// ===== Statement Types =====
 
 struct ExprStmt : public Stmt {
-    std::shared_ptr<Expr> expr;
-    ExprStmt(std::shared_ptr<Expr> e) : expr(e) {}
+    ExprPtr expr;
+    ExprStmt(ExprPtr e) : expr(e) {}
 };
