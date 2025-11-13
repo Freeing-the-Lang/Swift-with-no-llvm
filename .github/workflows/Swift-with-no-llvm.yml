@@ -1,4 +1,4 @@
-name: "Swift-with-no-llvm — Executable Build + C++/ASM + ProofLedger"
+name: "Swift-with-no-llvm — v22.0 Full Transpiler + Executable + ProofLedger"
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: swift-reinterpreter-${{ github.ref }}
+  group: swift-no-llvm-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -20,130 +20,186 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      # ---------- 0️⃣ Checkout ----------
-      - name: Checkout Repository
+      # -----------------------------------------
+      # 0) Checkout
+      # -----------------------------------------
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # ---------- 1️⃣ Install Build Tools ----------
-      - name: Install build tools (Linux/macOS)
-        if: runner.os != 'Windows'
-        run: |
-          sudo apt-get update -y || true
-          sudo apt-get install -y g++ clang nasm zip || true
-          echo "Build tools installed."
+      # -----------------------------------------
+      # 1) Install Tools
+      # -----------------------------------------
 
-      - name: Install build tools (Windows)
+      - name: Install Build Tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y clang g++ nasm zip
+
+      - name: Install Build Tools (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm nasm zip || true
+          echo 'export PATH="/usr/local/opt/llvm/bin:/opt/homebrew/opt/llvm/bin:$PATH"' >> ~/.bash_profile
+          source ~/.bash_profile || true
+
+      - name: Install Build Tools (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
           choco install llvm -y
-          choco install nasm -y
           choco install zip -y
-          echo "Build tools installed on Windows."
+          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
-      # ---------- 2️⃣ Build the Re-Interpreter ----------
-      - name: Compile Swift Re-Interpreter (C++)
+      # -----------------------------------------
+      # 2) Compile Swift Transpiler (C++)
+      # -----------------------------------------
+      - name: Build Transpiler
+        shell: bash
         run: |
           mkdir -p build dist
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            clang++ -std=c++17 src/main.cpp -o build/swift_reinterpreter.exe
-          else
-            clang++ -std=c++17 src/main.cpp -o build/swift_reinterpreter
-          fi
-          echo "Re-interpreter compiled."
 
-      # ---------- 3️⃣ Run Translation ----------
-      - name: Run Swift → C++ translation
-        run: |
-          echo "Translating Swift → C++..."
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            ./build/swift_reinterpreter.exe || true
+          echo "Building transpiler with all cpp sources..."
+
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            clang++ -std=c++17 \
+              src/main.cpp \
+              src/parser.cpp \
+              src/ast.cpp \
+              src/codegen.cpp \
+              src/evaluator.cpp \
+              -o build/swift_transpiler.exe
           else
-            ./build/swift_reinterpreter || true
+            clang++ -std=c++17 \
+              src/main.cpp \
+              src/parser.cpp \
+              src/ast.cpp \
+              src/codegen.cpp \
+              src/evaluator.cpp \
+              -o build/swift_transpiler
           fi
-          echo "Generated files:"
+
+      # -----------------------------------------
+      # 3) Run Swift → C++ (generate out.cpp)
+      # -----------------------------------------
+      - name: Run Transpiler
+        shell: bash
+        run: |
+          echo "Running Swift → C++ transpiler..."
+
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ./build/swift_transpiler.exe || true
+          else
+            ./build/swift_transpiler || true
+          fi
+
           ls -R .
 
-      # ---------- 4️⃣ Auto-fix out.cpp if needed ----------
-      - name: Fix malformed C++ (Auto-main patch)
+      # -----------------------------------------
+      # 4) Patch out.cpp if malformed
+      # -----------------------------------------
+      - name: Patch C++ Output
+        shell: bash
         run: |
-          if [ -f out.cpp ]; then
-            if ! grep -q "int main" out.cpp; then
-              echo "Applying main-wrapper patch..."
-              sed -i '1i #include <iostream>\nusing namespace std;\nint main(){' out.cpp || true
-              echo "}" >> out.cpp
-            fi
-          fi
-          echo "C++ file:"
-          head -n 20 out.cpp || true
-
-      # ---------- 5️⃣ Create ASM ----------
-      - name: Build ASM from C++
-        run: |
-          if [ -f out.cpp ]; then
-            echo "Building ASM..."
-            clang++ -S -masm=intel out.cpp -o out.asm || true
+          if [ ! -f out.cpp ]; then
+            echo "❌ out.cpp not generated. Parser incomplete."
+            exit 1
           fi
 
-      # ---------- 6️⃣ Create Executable ----------
-      - name: Build Executable (binary)
+          if ! grep -q "int main" out.cpp; then
+            echo "⚙️ Wrapping with main()"
+            sed -i '1i #include <iostream>\nusing namespace std;\nint main(){' out.cpp || true
+            echo "}" >> out.cpp
+          fi
+
+      # -----------------------------------------
+      # 5) Generate ASM
+      # -----------------------------------------
+      - name: Generate ASM
+        shell: bash
+        run: |
+          echo "Generating ASM..."
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            clang++ -S -masm=intel out.cpp -o out.asm
+          else
+            clang++ -S -masm=intel out.cpp -o out.asm
+          fi
+
+      # -----------------------------------------
+      # 6) Build Executable from out.cpp
+      # -----------------------------------------
+      - name: Build Executable
+        shell: bash
         run: |
           mkdir -p dist
-          echo "Building executable..."
 
-          if [ -f out.cpp ]; then
-            if [ "${{ runner.os }}" = "Windows" ]; then
-              clang++ out.cpp -o dist/out.exe || g++ out.cpp -o dist/out.exe
-            else
-              clang++ out.cpp -o dist/out || g++ out.cpp -o dist/out
-            fi
+          echo "Building executable from out.cpp..."
+
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            clang++ out.cpp -o dist/out.exe
+          else
+            clang++ out.cpp -o dist/out
           fi
 
-          echo "Executable created:"
-          ls dist || true
-
-      # ---------- 7️⃣ ProofLedger ----------
+      # -----------------------------------------
+      # 7) ProofLedger
+      # -----------------------------------------
       - name: Generate ProofLedger
+        shell: bash
         run: |
           echo "🧾 Generating ProofLedger..."
-          mkdir -p dist
 
-          HASH_CMD=""
-          if command -v sha256sum >/dev/null 2>&1; then
-            HASH_CMD="sha256sum"
-          else
-            HASH_CMD="shasum -a 256"
+          HASH="sha256sum"
+          if ! command -v sha256sum >/dev/null 2>&1; then
+            HASH="shasum -a 256"
           fi
 
-          $HASH_CMD out.cpp > dist/PROOF_LEDGER.txt || true
-          $HASH_CMD out.asm >> dist/PROOF_LEDGER.txt || true
-          $HASH_CMD dist/out* >> dist/PROOF_LEDGER.txt || true
+          mkdir -p dist
 
-          echo "Ledger:"
-          cat dist/PROOF_LEDGER.txt
+          $HASH out.cpp > dist/PROOF_LEDGER.txt
+          $HASH out.asm >> dist/PROOF_LEDGER.txt
+          $HASH dist/out* >> dist/PROOF_LEDGER.txt || true
 
-      # ---------- 8️⃣ Package ----------
-      - name: Package Build Results
+      # -----------------------------------------
+      # 8) Package
+      # -----------------------------------------
+      - name: Package Artifacts
+        shell: bash
         run: |
-          zip -r swift-reinterpreter-${{ runner.os }}.zip dist
-          echo "Packaged."
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            powershell -command "Compress-Archive -Path dist -DestinationPath swift-no-llvm-windows.zip"
+          else
+            zip -r swift-no-llvm-${{ matrix.os }}.zip dist
+          fi
 
-      # ---------- 9️⃣ Tag ----------
-      - name: Create Auto Tag
+      # -----------------------------------------
+      # 9) Tag
+      # -----------------------------------------
+      - name: Auto Tag
         id: tag
+        shell: bash
         run: |
-          VERSION="v$(date +%Y%m%d%H%M%S)"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          git config user.name "github-actions"
+          VER="v$(date +%Y%m%d%H%M%S)"
+          echo "version=$VER" >> $GITHUB_OUTPUT
           git config user.email "actions@github.com"
-          git tag -a "$VERSION" -m "Auto Release $VERSION"
-          git push origin "$VERSION"
+          git config user.name "github-actions"
+          git tag -a "$VER" -m "Swift-with-no-llvm Release $VER"
+          git push origin "$VER"
 
-      # ---------- 🔟 Release ----------
-      - name: Publish GitHub Release
+      # -----------------------------------------
+      # 🔟 Release
+      # -----------------------------------------
+      - name: Publish Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.tag.outputs.version }}
           files: |
-            swift-reinterpreter-*.zip
             dist/**/*.txt
             dist/out*
+            *.zip
+          body: |
+            Swift-with-no-LLVM v22.0
+            - Swift → C++ Transpiler
+            - C++ → ASM
+            - Executable Build
+            - ProofLedger Included
