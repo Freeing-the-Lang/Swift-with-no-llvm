@@ -1,59 +1,48 @@
 #include "codegen.hpp"
-#include <stdexcept>
+#include <sstream>
 
-void Evaluator::run(const std::vector<StmtPtr> &program) {
-    for (auto &st : program) {
+std::string CodeGen::generate(const std::vector<StmtPtr>& prog) {
+    std::stringstream out;
+
+    out << "#include <iostream>\n";
+    out << "#include <string>\n";
+    out << "using namespace std;\n\n";
+    out << "int main() {\n";
+
+    for (auto &st : prog) {
         if (std::holds_alternative<Stmt::Let>(st->value)) {
-            auto &v = std::get<Stmt::Let>(st->value);
-            env[v.name] = evalExpr(v.value);
+            auto& v = std::get<Stmt::Let>(st->value);
+            out << "    auto " << v.name << " = " << genExpr(v.value) << ";\n";
         }
         else if (std::holds_alternative<Stmt::Print>(st->value)) {
-            auto &v = std::get<Stmt::Print>(st->value);
-            auto r = evalExpr(v.value);
-
-            if (std::holds_alternative<double>(r))
-                std::cout << std::get<double>(r) << "\n";
-            else if (std::holds_alternative<std::string>(r))
-                std::cout << std::get<std::string>(r) << "\n";
-            else if (std::holds_alternative<bool>(r))
-                std::cout << (std::get<bool>(r) ? "true" : "false") << "\n";
+            auto& v = std::get<Stmt::Print>(st->value);
+            out << "    cout << " << genExpr(v.value) << " << endl;\n";
         }
     }
+
+    out << "    return 0;\n";
+    out << "}\n\n";
+
+    return out.str();
 }
 
-auto Evaluator::evalExpr(const ExprPtr &e)
--> std::variant<double, std::string, bool>
-{
+std::string CodeGen::genExpr(const ExprPtr& e) {
     if (std::holds_alternative<Expr::Number>(e->value))
-        return std::get<Expr::Number>(e->value).value;
+        return std::to_string(std::get<Expr::Number>(e->value).value);
 
     if (std::holds_alternative<Expr::String>(e->value))
-        return std::get<Expr::String>(e->value).value;
+        return "\"" + std::get<Expr::String>(e->value).value + "\"";
 
     if (std::holds_alternative<Expr::Boolean>(e->value))
-        return std::get<Expr::Boolean>(e->value).value;
+        return std::get<Expr::Boolean>(e->value).value ? "true" : "false";
 
-    if (std::holds_alternative<Expr::Variable>(e->value)) {
-        auto &name = std::get<Expr::Variable>(e->value).name;
-        if (!env.count(name)) throw std::runtime_error("Undefined variable: " + name);
-        return env[name];
-    }
+    if (std::holds_alternative<Expr::Variable>(e->value))
+        return std::get<Expr::Variable>(e->value).name;
 
     if (std::holds_alternative<Expr::Binary>(e->value)) {
-        auto &b = std::get<Expr::Binary>(e->value);
-        auto lv = evalExpr(b.left);
-        auto rv = evalExpr(b.right);
-
-        double l = std::get<double>(lv);
-        double r = std::get<double>(rv);
-
-        if (b.op == "+") return l + r;
-        if (b.op == "-") return l - r;
-        if (b.op == "*") return l * r;
-        if (b.op == "/") return l / r;
-
-        throw std::runtime_error("Unknown operator: " + b.op);
+        auto& b = std::get<Expr::Binary>(e->value);
+        return "(" + genExpr(b.left) + " " + b.op + " " + genExpr(b.right) + ")";
     }
 
-    throw std::runtime_error("Invalid expression");
+    return "";
 }
